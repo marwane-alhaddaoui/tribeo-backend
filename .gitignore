@@ -1,0 +1,18 @@
+# Environnement virtuel
+venv/
+
+# Fichiers Python inutiles
+__pycache__/
+*.pyc
+*.pyo
+*.log
+
+# Base de données locale
+db.sqlite3
+
+# Fichiers d’environnement
+.env
+
+# IDE
+.vscode/
+.idea/
