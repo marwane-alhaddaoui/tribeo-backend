@@ -1,1 +1,1 @@
-from .users import *
+from .users import CustomUser
