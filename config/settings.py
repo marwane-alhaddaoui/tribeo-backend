@@ -45,7 +45,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'corsheaders',
      'users',
-     'sessions',
+     'sport_sessions',
 ]
 
 MIDDLEWARE = [
