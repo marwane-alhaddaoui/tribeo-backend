@@ -10,7 +10,8 @@ def test_create_and_list_sessions():
         email="creator@example.com",
         first_name="Creator",
         last_name="One",
-        password="password123"
+        password="password123",
+        role="coach" 
     )
     client.force_authenticate(user=user)
 
@@ -22,7 +23,7 @@ def test_create_and_list_sessions():
         "start_time": "15:00",          
         "location": "Paris"
     })
-    assert response.status_code == 201
+    assert response.status_code == 201, f"Expected 201, got {response.status_code}, data: {response.data}"
     session_id = response.data['id']
 
     # List
