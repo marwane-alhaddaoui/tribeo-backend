@@ -5,9 +5,8 @@ from apps.sport_sessions.api.views.leave_session_view import LeaveSessionView
 from apps.sport_sessions.api.views.detail_session_view import SessionDetailView
 
 urlpatterns = [
-    path('', SessionListCreateView.as_view(), name='sessions-list-create'),
-    path('<int:pk>/', SessionDetailView.as_view(), name='session-detail'),
-    path('<int:pk>/join/', JoinSessionView.as_view(), name='join-session'),
-    path('<int:pk>/leave/', LeaveSessionView.as_view(), name='leave-session'),
-    
+    path('', SessionListCreateView.as_view(), name='list_create_session'),
+    path('<int:pk>/', SessionDetailView.as_view(), name='detail_session'),
+    path('<int:pk>/join/', JoinSessionView.as_view(), name='join_session'),
+    path('<int:pk>/leave/', LeaveSessionView.as_view(), name='leave_session'),
 ]

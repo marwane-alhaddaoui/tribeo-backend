@@ -16,3 +16,8 @@ db.sqlite3
 # IDE
 .vscode/
 .idea/
+
+# Rapports de test
+.coverage
+htmlcov/
+pytest.ini
