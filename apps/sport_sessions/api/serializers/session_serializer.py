@@ -15,13 +15,23 @@ class SessionSerializer(serializers.ModelSerializer):
             'id',
             'title',
             'sport',
+            'description',
             'location',
             'date',
             'start_time',
-            'max_participants',
-            'description',
+            'is_public',
+            'team_mode',
+            'max_players',
+            'min_players_per_team',
+            'max_players_per_team',
             'creator',
             'participants',
             'created_at',
             'updated_at',
+        ]
+        read_only_fields = [
+            'creator',
+            'participants',
+            'created_at',
+            'updated_at'
         ]

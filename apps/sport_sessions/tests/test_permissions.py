@@ -7,7 +7,7 @@ from apps.users.models import CustomUser
 def test_only_admin_or_coach_can_create_session():
     client = APIClient()
 
-    # User normal
+    # --- User normal ---
     user = CustomUser.objects.create_user(
         email="normal@example.com",
         first_name="Norm",
@@ -21,11 +21,15 @@ def test_only_admin_or_coach_can_create_session():
         "sport": "football",
         "date": "2025-08-20",
         "start_time": "10:00",
-        "location": "Paris"
+        "location": "Paris",
+        "max_players": 10,
+        "team_mode": False,
+        "is_public": True  # forcé pour user normal
     })
-    assert response.status_code == 403
+    assert response.status_code == 201, f"Expected 201 for user, got {response.status_code}"
+    assert response.data["is_public"] is True
 
-    # Coach
+    # --- Coach ---
     coach = CustomUser.objects.create_user(
         email="coach@example.com",
         first_name="Coach",
@@ -39,6 +43,10 @@ def test_only_admin_or_coach_can_create_session():
         "sport": "football",
         "date": "2025-08-20",
         "start_time": "10:00",
-        "location": "Paris"
+        "location": "Paris",
+        "max_players": 8,
+        "team_mode": True,
+        "is_public": False
     })
-    assert response.status_code == 201
+    assert response.status_code == 201, f"Expected 201 for coach, got {response.status_code}"
+    assert response.data["is_public"] is False
