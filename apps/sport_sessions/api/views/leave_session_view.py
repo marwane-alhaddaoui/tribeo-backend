@@ -2,8 +2,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
 from django.shortcuts import get_object_or_404
-from sport_sessions.models import SportSession
-from sport_sessions.serializers.session_serializer import SessionSerializer
+from apps.sport_sessions.models import SportSession
+from apps.sport_sessions.api.serializers.session_serializer import SessionSerializer
 
 class LeaveSessionView(APIView):
     permission_classes = [permissions.IsAuthenticated]

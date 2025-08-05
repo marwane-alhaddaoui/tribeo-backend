@@ -1,6 +1,6 @@
 from rest_framework import generics, permissions
-from sport_sessions.models import SportSession
-from sport_sessions.serializers.session_serializer import SessionSerializer
+from apps.sport_sessions.models import SportSession
+from apps.sport_sessions.api.serializers.session_serializer import SessionSerializer
 
 class SessionListCreateView(generics.ListCreateAPIView):
     queryset = SportSession.objects.all()

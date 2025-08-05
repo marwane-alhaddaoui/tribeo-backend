@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from sport_sessions.models import SportSession
+from apps.sport_sessions.models import SportSession
 
 class SessionSerializer(serializers.ModelSerializer):
     creator = serializers.ReadOnlyField(source='creator.email')

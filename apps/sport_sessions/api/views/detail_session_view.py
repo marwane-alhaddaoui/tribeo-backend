@@ -1,7 +1,7 @@
 from rest_framework import generics, permissions
 from rest_framework.exceptions import PermissionDenied
-from sport_sessions.models import SportSession
-from sport_sessions.serializers.session_serializer import SessionSerializer
+from apps.sport_sessions.models import SportSession
+from apps.sport_sessions.api.serializers.session_serializer import SessionSerializer
 
 class SessionDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = SportSession.objects.all()

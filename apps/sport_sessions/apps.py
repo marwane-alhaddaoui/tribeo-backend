@@ -3,4 +3,5 @@ from django.apps import AppConfig
 
 class SessionsConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'sport_sessions'
+    name = 'apps.sport_sessions'
+    label = 'sport_sessions'
