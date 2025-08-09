@@ -1,5 +1,6 @@
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
+from django.db.models import Q
 from apps.sport_sessions.models import SportSession
 from apps.sport_sessions.api.serializers.session_serializer import SessionSerializer
 from apps.users.api.permissions.roles_permissions import IsAdminOrCoach
@@ -20,15 +21,23 @@ class SessionListCreateView(generics.ListCreateAPIView):
         Filtrer les sessions:
         - Les utilisateurs simples voient uniquement les sessions publiques.
         - Les admins/coachs voient tout.
-        - Filtre supplémentaire : sport_id (param GET).
+        - Filtre supplémentaire : sport_id et search.
         """
         user = self.request.user
         queryset = SportSession.objects.all() if user.role in ['admin', 'coach'] else SportSession.objects.filter(is_public=True)
 
-        # Filtre par sport_id si fourni dans l'URL
+        # Filtre par sport_id
         sport_id = self.request.query_params.get('sport_id')
         if sport_id:
             queryset = queryset.filter(sport_id=sport_id)
+
+        # Filtre par recherche
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search) |
+                Q(description__icontains=search)
+            )
 
         return queryset
 
