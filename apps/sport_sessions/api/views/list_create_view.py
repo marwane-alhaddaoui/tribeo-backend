@@ -20,11 +20,17 @@ class SessionListCreateView(generics.ListCreateAPIView):
         Filtrer les sessions:
         - Les utilisateurs simples voient uniquement les sessions publiques.
         - Les admins/coachs voient tout.
+        - Filtre supplémentaire : sport_id (param GET).
         """
         user = self.request.user
-        if user.role in ['admin', 'coach']:
-            return SportSession.objects.all()
-        return SportSession.objects.filter(is_public=True)
+        queryset = SportSession.objects.all() if user.role in ['admin', 'coach'] else SportSession.objects.filter(is_public=True)
+
+        # Filtre par sport_id si fourni dans l'URL
+        sport_id = self.request.query_params.get('sport_id')
+        if sport_id:
+            queryset = queryset.filter(sport_id=sport_id)
+
+        return queryset
 
     def post(self, request, *args, **kwargs):
         user = request.user
