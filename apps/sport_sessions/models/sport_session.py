@@ -31,8 +31,21 @@ class SportSession(models.Model):
 
     location = models.CharField(
         max_length=255,
-        help_text="Lieu où se déroulera la session."
+        help_text="Lieu où se déroulera la session (adresse complète ou ville)."
     )
+
+    # Nouveaux champs pour la carte (optionnels)
+    latitude = models.FloatField(
+        blank=True,
+        null=True,
+        help_text="Latitude de l'emplacement."
+    )
+    longitude = models.FloatField(
+        blank=True,
+        null=True,
+        help_text="Longitude de l'emplacement."
+    )
+
     date = models.DateField(help_text="Date de la session.")
     start_time = models.TimeField(help_text="Heure de début de la session.")
 
