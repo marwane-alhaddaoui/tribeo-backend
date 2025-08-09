@@ -13,6 +13,7 @@ class SessionSerializer(serializers.ModelSerializer):
 
     sport = SportSerializer(read_only=True)  # lecture
     sport_id = serializers.IntegerField(write_only=True)  # écriture
+    available_slots = serializers.SerializerMethodField()  # ✅ Nouveau champ calculé
 
     class Meta:
         model = SportSession
@@ -34,9 +35,25 @@ class SessionSerializer(serializers.ModelSerializer):
             'participants',
             'created_at',
             'updated_at',
+            'available_slots',  # ✅ Ajouté dans la réponse
         ]
         read_only_fields = ['creator', 'participants', 'created_at', 'updated_at']
 
-    def create(self, validated_data):
-        sport_id = validated_data.pop('sport_id')
-        return SportSession.objects.create(sport_id=sport_id, **validated_data)
+    def get_available_slots(self, obj):
+        """Retourne le nombre de places restantes (min 0)."""
+        return max(obj.max_players - obj.participants.count(), 0)
+    
+
+
+def create(self, validated_data):
+    sport_id = validated_data.pop('sport_id')
+    creator = validated_data.get('creator')
+
+    # Création de la session
+    session = SportSession.objects.create(sport_id=sport_id, **validated_data)
+
+    # ✅ Ajoute automatiquement le créateur comme participant
+    if creator:
+        session.participants.add(creator)
+
+    return session

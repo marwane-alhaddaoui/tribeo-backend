@@ -51,6 +51,10 @@ class SessionListCreateView(generics.ListCreateAPIView):
 
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(creator=user)
+        session = serializer.save(creator=user)
 
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        # ✅ Ajout automatique du créateur comme participant
+        session.participants.add(user)
+
+        # Renvoi de la session à jour
+        return Response(self.get_serializer(session).data, status=status.HTTP_201_CREATED)
