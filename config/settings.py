@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'corsheaders',
      'apps.users',
      'apps.sport_sessions',
+     'apps.sports',
      'apps.groups',
      'apps.teams',
 ]
