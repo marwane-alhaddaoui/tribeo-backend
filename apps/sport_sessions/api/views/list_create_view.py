@@ -3,28 +3,45 @@ from rest_framework.response import Response
 from django.db.models import Q
 from apps.sport_sessions.models import SportSession
 from apps.sport_sessions.api.serializers.session_serializer import SessionSerializer
-from apps.users.api.permissions.roles_permissions import IsAdminOrCoach
+
 
 class SessionListCreateView(generics.ListCreateAPIView):
     """
-    GET: Liste toutes les sessions disponibles (connecté uniquement).
-    POST: Crée une session.
-        - User standard: peut créer uniquement des sessions publiques.
-        - Coach/Admin: peuvent créer publiques ou privées.
+    GET:
+        - ?mine=true → uniquement les sessions créées ou rejointes par l'utilisateur
+        - ?is_public=true → uniquement les sessions publiques (peu importe le rôle)
+        - Sinon :
+            - User standard → sessions publiques
+            - Coach/Admin → toutes les sessions
+
+    POST:
+        - User standard → sessions publiques uniquement
+        - Coach/Admin → publiques, privées ou groupe
     """
     queryset = SportSession.objects.all()
     serializer_class = SessionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        """
-        Filtrer les sessions:
-        - Les utilisateurs simples voient uniquement les sessions publiques.
-        - Les admins/coachs voient tout.
-        - Filtre supplémentaire : sport_id et search.
-        """
         user = self.request.user
-        queryset = SportSession.objects.all() if user.role in ['admin', 'coach'] else SportSession.objects.filter(is_public=True)
+        mine = self.request.query_params.get('mine') == 'true'
+        public_only = self.request.query_params.get('is_public') == 'true'
+
+        # 🔹 Dashboard perso
+        if mine:
+            return SportSession.objects.filter(
+                Q(creator=user) | Q(participants=user)
+            ).distinct()
+
+        # 🔹 Forcer l'affichage public pour tout le monde
+        if public_only:
+            queryset = SportSession.objects.filter(is_public=True)
+        else:
+            # 🔹 Logique par rôle
+            if user.role in ['admin', 'coach']:
+                queryset = SportSession.objects.all()
+            else:
+                queryset = SportSession.objects.filter(is_public=True)
 
         # Filtre par sport_id
         sport_id = self.request.query_params.get('sport_id')
@@ -45,16 +62,16 @@ class SessionListCreateView(generics.ListCreateAPIView):
         user = request.user
         data = request.data.copy()
 
-        # Si l'utilisateur n'est pas admin/coach, on force la session à être publique
+        # Forcer public si pas admin/coach
         if user.role not in ['admin', 'coach']:
             data['is_public'] = True
+            data['visibility'] = SportSession.Visibility.PUBLIC  # synchroniser avec enum
 
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
         session = serializer.save(creator=user)
 
-        # ✅ Ajout automatique du créateur comme participant
+        # ✅ Ajouter créateur comme participant
         session.participants.add(user)
 
-        # Renvoi de la session à jour
         return Response(self.get_serializer(session).data, status=status.HTTP_201_CREATED)

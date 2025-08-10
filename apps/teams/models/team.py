@@ -1,6 +1,5 @@
 from django.db import models
 from django.conf import settings
-from apps.sport_sessions.models.sport_session import SportSession
 
 class Team(models.Model):
     """
@@ -8,11 +7,14 @@ class Team(models.Model):
     """
     name = models.CharField(max_length=100)
     color = models.CharField(max_length=20, blank=True, null=True)  # Ex: "Red", "#FF0000"
+
+    # ✅ On utilise une string "sport_sessions.SportSession" pour éviter l'import circulaire
     session = models.ForeignKey(
-        SportSession,
+        "sport_sessions.SportSession",
         on_delete=models.CASCADE,
         related_name="teams"
     )
+
     members = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         related_name="teams",
