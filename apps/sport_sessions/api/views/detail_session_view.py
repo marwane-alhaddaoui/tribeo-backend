@@ -5,35 +5,27 @@ from apps.sport_sessions.api.serializers.session_serializer import SessionSerial
 
 class SessionDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
-    Permet d'afficher, modifier ou supprimer une session sportive.
-    Seul le créateur ou un administrateur peut modifier ou supprimer la session.
+    Afficher / modifier / supprimer une session.
+    Seul le créateur ou un admin peut modifier/supprimer.
     """
-    queryset = SportSession.objects.all()
     serializer_class = SessionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    def get_object(self):
-        """
-        Récupère la session spécifique demandée.
-        """
-        return super().get_object()
+    def get_queryset(self):
+        # évite N+1 : charge creator + sport + group + teams, et précharge participants
+        return (SportSession.objects
+                .select_related("sport", "creator", "group", "home_team", "away_team")
+                .prefetch_related("participants"))
 
     def perform_update(self, serializer):
         session = self.get_object()
         user = self.request.user
-
-        # Vérifier que l'utilisateur a les droits
-        if user != session.creator and user.role != 'admin':
+        if user != session.creator and getattr(user, "role", None) != "admin":
             raise PermissionDenied("Vous n'avez pas l'autorisation de modifier cette session.")
-
-        # Mise à jour
         serializer.save()
 
     def perform_destroy(self, instance):
         user = self.request.user
-
-        # Vérifier que l'utilisateur a les droits
-        if user != instance.creator and user.role != 'admin':
+        if user != instance.creator and getattr(user, "role", None) != "admin":
             raise PermissionDenied("Vous n'avez pas l'autorisation de supprimer cette session.")
-
         instance.delete()

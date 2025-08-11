@@ -8,20 +8,33 @@ from apps.sport_sessions.api.serializers.session_serializer import SessionSerial
 class SessionListCreateView(generics.ListCreateAPIView):
     """
     GET:
-        - ?mine=true        → uniquement les sessions créées ou rejointes par l'utilisateur
-        - ?is_public=true   → uniquement les sessions publiques (peu importe le rôle)
-        - ?date_from=YYYY-MM-DD & ?date_to=YYYY-MM-DD → filtre par plage de dates (inclusif)
-        - Sinon :
-            - User standard → sessions publiques
-            - Coach/Admin   → toutes les sessions
+        - Accessible publiquement (visiteurs non connectés).
+        - Anonyme  → uniquement les sessions publiques (is_public=True).
+        - Authentifié :
+            - ?mine=true        → uniquement les sessions créées ou rejointes par l'utilisateur
+            - ?is_public=true   → uniquement les sessions publiques
+            - Sinon :
+                - User standard → sessions publiques
+                - Coach/Admin   → toutes les sessions
+        - Filtres communs (anonyme et connecté) :
+            - ?sport_id=
+            - ?search=
+            - ?date_from=YYYY-MM-DD & ?date_to=YYYY-MM-DD (inclusif)
 
     POST:
-        - User standard → sessions publiques uniquement
+        - Auth requis.
+        - User standard → sessions publiques uniquement (force is_public=True)
         - Coach/Admin   → publiques, privées ou groupe
     """
     queryset = SportSession.objects.all()
     serializer_class = SessionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]  # défaut: privé
+
+    # ✅ Ouvre le GET (liste) à tout le monde, garde POST privé
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [permissions.AllowAny()]
+        return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
         user = self.request.user
@@ -34,24 +47,29 @@ class SessionListCreateView(generics.ListCreateAPIView):
         date_from = params.get('date_from')
         date_to = params.get('date_to')
 
-        # 🔹 Dashboard perso
-        if mine:
-            queryset = SportSession.objects.filter(
-                Q(creator=user) | Q(participants=user)
-            ).distinct()
-        else:
-            # 🔹 Forcer l'affichage public pour tout le monde si demandé
-            if public_only:
-                queryset = SportSession.objects.filter(is_public=True)
-            else:
-                # 🔹 Logique par rôle
-                role = getattr(user, 'role', None)
-                if role in ['admin', 'coach']:
-                    queryset = SportSession.objects.all()
-                else:
-                    queryset = SportSession.objects.filter(is_public=True)
+        # 🔓 Visiteur (non authentifié) → seulement public
+        if not user.is_authenticated:
+            queryset = SportSession.objects.filter(is_public=True)
 
-        # 🎯 Filtres additionnels
+        else:
+            # 🔹 Dashboard perso
+            if mine:
+                queryset = SportSession.objects.filter(
+                    Q(creator=user) | Q(participants=user)
+                ).distinct()
+            else:
+                # 🔹 Forcer l'affichage public si demandé
+                if public_only:
+                    queryset = SportSession.objects.filter(is_public=True)
+                else:
+                    # 🔹 Logique par rôle
+                    role = getattr(user, 'role', None)
+                    if role in ['admin', 'coach']:
+                        queryset = SportSession.objects.all()
+                    else:
+                        queryset = SportSession.objects.filter(is_public=True)
+
+        # 🎯 Filtres additionnels (communs)
         if sport_id:
             queryset = queryset.filter(sport_id=sport_id)
 

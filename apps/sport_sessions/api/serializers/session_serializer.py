@@ -1,23 +1,34 @@
-# apps/sport_sessions/api/serializers/session_serializer.py
 from rest_framework import serializers
+from django.contrib.auth import get_user_model
 from apps.sport_sessions.models import SportSession
 from apps.sports.api.serializers.sport_serializer import SportSerializer
-from apps.groups.models import Group  # <-- à vérifier selon ton arborescence
+from apps.groups.models import Group
 import requests
+
+User = get_user_model()
+
+
+class UserMiniSerializer(serializers.ModelSerializer):
+    avatar_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ("id", "username", "email", "avatar_url")
+
+    def get_avatar_url(self, obj):
+        return getattr(obj, "avatar_url", None)
 
 
 class SessionSerializer(serializers.ModelSerializer):
-    creator = serializers.ReadOnlyField(source='creator.email')
-    participants = serializers.SlugRelatedField(
-        many=True,
-        slug_field='email',
-        read_only=True
-    )
+    # 🔹 Créateur & participants en objets complets
+    creator = UserMiniSerializer(read_only=True)
+    participants = UserMiniSerializer(many=True, read_only=True)
 
-    sport = SportSerializer(read_only=True)  # lecture
-    sport_id = serializers.IntegerField(write_only=True)  # écriture
+    # 🔹 Sport lecture + ID écriture
+    sport = SportSerializer(read_only=True)
+    sport_id = serializers.IntegerField(write_only=True)
 
-    # 🔥 Nouveaux champs pour visibilité et groupe
+    # 🔹 Visibilité & groupe
     visibility = serializers.ChoiceField(
         choices=SportSession.Visibility.choices,
         default=SportSession.Visibility.PRIVATE
@@ -29,7 +40,9 @@ class SessionSerializer(serializers.ModelSerializer):
         allow_null=True
     )
 
+    # 🔹 Champs calculés
     available_slots = serializers.SerializerMethodField()
+    team_count = serializers.SerializerMethodField()
 
     class Meta:
         model = SportSession
@@ -51,18 +64,19 @@ class SessionSerializer(serializers.ModelSerializer):
             'away_team',
             'score_home',
             'score_away',
-            'visibility',  # 🆕
-            'group_id',    # 🆕
+            'visibility',
+            'group_id',
             'is_public',
             'team_mode',
             'max_players',
             'min_players_per_team',
             'max_players_per_team',
-            'creator',
-            'participants',
+            'creator',        # Objet complet
+            'participants',   # Liste d’objets complets
             'created_at',
             'updated_at',
             'available_slots',
+            'team_count',
         ]
         read_only_fields = [
             'creator',
@@ -72,30 +86,36 @@ class SessionSerializer(serializers.ModelSerializer):
             'latitude',
             'longitude',
             'status',
-            'is_public',  # calculé dans save()
+            'is_public',
         ]
 
+    # ---------------------
+    # Champs calculés
+    # ---------------------
     def get_available_slots(self, obj):
         return max(obj.max_players - obj.participants.count(), 0)
 
+    def get_team_count(self, obj):
+        return 2 if obj.team_mode else 1
+
+    # ---------------------
+    # Validation
+    # ---------------------
     def validate(self, attrs):
         fmt = attrs.get('format', getattr(self.instance, 'format', None))
 
-        # Format Équipe vs Équipe → home_team et away_team requis
         if fmt == SportSession.Format.VERSUS_TEAM:
             if not attrs.get('home_team') or not attrs.get('away_team'):
                 raise serializers.ValidationError(
                     "Pour un format Équipe vs Équipe, home_team et away_team sont obligatoires."
                 )
 
-        # Format 1v1 → max_players doit être 2
         if fmt == SportSession.Format.VERSUS_1V1:
             if attrs.get('max_players') != 2:
                 raise serializers.ValidationError(
                     "Pour un format 1v1, max_players doit être égal à 2."
                 )
 
-        # team_mode activé → max_players_per_team requis
         if attrs.get('team_mode'):
             if not attrs.get('max_players_per_team'):
                 raise serializers.ValidationError(
@@ -106,7 +126,6 @@ class SessionSerializer(serializers.ModelSerializer):
                     "min_players_per_team ne peut pas être supérieur à max_players_per_team."
                 )
 
-        # Visibilité GROUP → group obligatoire
         if attrs.get('visibility') == SportSession.Visibility.GROUP and not attrs.get('group'):
             raise serializers.ValidationError(
                 "Un group_id est obligatoire pour une session de type GROUP."
@@ -114,12 +133,15 @@ class SessionSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    # ---------------------
+    # Création
+    # ---------------------
     def create(self, validated_data):
         sport_id = validated_data.pop('sport_id')
         creator = self.context['request'].user
         validated_data['creator'] = creator
 
-        # 📍 Géocodage automatique
+        # 📍 Géocodage
         location_text = validated_data.get('location')
         if location_text:
             try:
@@ -137,7 +159,7 @@ class SessionSerializer(serializers.ModelSerializer):
 
         session = SportSession.objects.create(sport_id=sport_id, **validated_data)
 
-        # Ajoute automatiquement le créateur comme participant
+        # Ajoute le créateur comme participant
         session.participants.add(creator)
 
         return session
