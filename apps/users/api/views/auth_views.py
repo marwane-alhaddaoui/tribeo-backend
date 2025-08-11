@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model, authenticate
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from apps.users.api.serializers.user_serializer import RegisterSerializer, UserSerializer
+from rest_framework.parsers import MultiPartParser, FormParser
 
 User = get_user_model()
 
@@ -69,10 +70,8 @@ class RefreshView(TokenRefreshView):
     pass
 
 
-# ---- /auth/me : GET & PUT/PATCH ----
 class MeView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = UserSerializer
-
-    def get_object(self):
-        return self.request.user
+    parser_classes = [MultiPartParser, FormParser]  # JSON reste supporté par défaut
+    def get_object(self): return self.request.user
