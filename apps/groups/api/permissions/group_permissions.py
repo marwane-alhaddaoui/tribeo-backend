@@ -48,6 +48,9 @@ class IsGroupOwnerOrManager(BasePermission):
         u = request.user
         if not u or not u.is_authenticated:
             return False
+        
+        if getattr(u, "is_superuser", False) or getattr(u, "is_staff", False):
+            return True
 
         g = _resolve_group(obj)
         if g is None:
