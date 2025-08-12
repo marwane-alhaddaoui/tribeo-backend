@@ -1,1 +1,1 @@
-from .group import Group
+from .group import Group, GroupMember

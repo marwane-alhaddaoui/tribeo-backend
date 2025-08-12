@@ -1,29 +1,45 @@
 from rest_framework import generics, permissions
-from apps.groups.models.group import Group
-from apps.groups.api.serializers.group_serializer import GroupSerializer
-from apps.groups.api.permissions.group_permissions import IsCoachOrAdmin
-
+from django.db.models import Count
+from apps.groups.models import Group, GroupMember
+from apps.groups.api.serializers.group_serializer import GroupListSerializer, GroupDetailSerializer
+from apps.groups.api.permissions.group_permissions import IsGroupOwnerOrManager
 
 class GroupListCreateView(generics.ListCreateAPIView):
-    serializer_class = GroupSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        # Si c'est un coach, il ne voit que ses groupes
-        if hasattr(user, "role") and user.role == "coach":
-            return Group.objects.filter(coach=user)
-        return Group.objects.all()
+        qs = Group.objects.all().annotate(
+            members_count=Count("memberships", filter=None)
+        )
+        # Si tu veux : filtrer par sport / ville / q
+        sport_id = self.request.query_params.get("sport")
+        if sport_id:
+            qs = qs.filter(sport_id=sport_id)
+        city = self.request.query_params.get("city")
+        if city:
+            qs = qs.filter(city__icontains=city)
+        q = self.request.query_params.get("q")
+        if q:
+            qs = qs.filter(name__icontains=q)
+        return qs
 
-    def get_permissions(self):
-        if self.request.method == 'POST':
-            return [IsCoachOrAdmin()]
-        return [permissions.IsAuthenticated()]
+    def get_serializer_class(self):
+        # liste => list serializer
+        if self.request.method == "GET":
+            return GroupListSerializer
+        # création => detail (on renvoie l’objet complet créé)
+        return GroupDetailSerializer
 
     def perform_create(self, serializer):
-        serializer.save(coach=self.request.user)
+        group = serializer.save(owner=self.request.user)
+        # auto-membership owner
+        GroupMember.objects.get_or_create(
+            group=group, user=self.request.user,
+            defaults={"role": GroupMember.ROLE_OWNER, "status": GroupMember.STATUS_ACTIVE}
+        )
 
 
 class GroupDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Group.objects.all()
-    serializer_class = GroupSerializer
-    permission_classes = [IsCoachOrAdmin]
+    serializer_class = GroupDetailSerializer
+    permission_classes = [IsGroupOwnerOrManager]
