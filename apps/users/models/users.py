@@ -27,6 +27,15 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
     avatar_url = models.URLField(max_length=500, blank=True, null=True)  # 🆕
 
+    @property
+    def is_coach(self) -> bool:
+        return (self.role or "").lower() == "coach"
+
+    @property
+    def is_premium(self) -> bool:
+        # si tu ajoutes un jour un role "premium" ; pour l’instant ça restera False
+        return (self.role or "").lower() == "premium"
+    
     objects = CustomUserManager()
 
     USERNAME_FIELD = 'email'

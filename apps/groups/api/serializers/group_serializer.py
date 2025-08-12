@@ -1,12 +1,11 @@
-# apps/groups/api/serializers/group_serializer.py
 from rest_framework import serializers
 
-# ✅ IMPORTS MODELS (inclut les nouveaux)
+# ✅ IMPORTS MODELS
 from apps.groups.models import (
     Group,
     GroupMember,
     GroupJoinRequest,
-    GroupExternalMember,  # si tu n'utilises pas les membres externes, tu peux retirer cette ligne + le serializer associé
+    GroupExternalMember,
 )
 
 # ---- compat helpers (le front peut encore lire visibility/join_policy sans casser)
@@ -24,9 +23,10 @@ class GroupListSerializer(serializers.ModelSerializer):
     is_owner_or_manager = serializers.SerializerMethodField()
     sport_name = serializers.CharField(source="sport.name", read_only=True)
 
-    group_type = serializers.CharField(read_only=True)   # NEW
-    visibility = serializers.SerializerMethodField()      # COMPAT
-    join_policy = serializers.SerializerMethodField()     # COMPAT
+    # 🔒 en lecture seule ici (la version détail rendra ce champ écrivable)
+    group_type = serializers.CharField(read_only=True)
+    visibility = serializers.SerializerMethodField()   # COMPAT
+    join_policy = serializers.SerializerMethodField()  # COMPAT
 
     class Meta:
         model = Group
@@ -82,17 +82,42 @@ class GroupListSerializer(serializers.ModelSerializer):
 
 
 class GroupDetailSerializer(GroupListSerializer):
+    # ✍️ ici on rend le champ écrivable pour create/update
+    group_type = serializers.ChoiceField(choices=Group.GroupType.choices, required=False)
+
     members = serializers.SerializerMethodField()
-    # 👉 si tu veux afficher les externes dans le détail, décommente la ligne suivante :
     # external_members = ExternalMemberSerializer(many=True, read_only=True)
 
     class Meta(GroupListSerializer.Meta):
-        # 👉 si tu décommentes external_members au-dessus, ajoute "external_members" ci-dessous
         fields = GroupListSerializer.Meta.fields + ["members"]
 
     def get_members(self, obj):
+        rows = []
+        # Inclure l'owner
+        if obj.owner_id and obj.owner:
+            rows.append({
+                "id": obj.owner_id,
+                "username": obj.owner.username,
+                "email": obj.owner.email,
+                "first_name": obj.owner.first_name,
+                "last_name": obj.owner.last_name,
+                "role": GroupMember.ROLE_OWNER,
+            })
+
+        # Membres actifs
         qs = obj.memberships.select_related("user").filter(status=GroupMember.STATUS_ACTIVE)
-        return [gm.user.email for gm in qs]
+        for gm in qs:
+            if gm.user_id == obj.owner_id:
+                continue  # éviter doublon
+            rows.append({
+                "id": gm.user_id,
+                "username": gm.user.username,
+                "email": gm.user.email,
+                "first_name": gm.user.first_name,
+                "last_name": gm.user.last_name,
+                "role": gm.role,
+            })
+        return rows
 
 
 # Alias de compat (si d'anciens imports l'utilisent)
@@ -100,7 +125,6 @@ GroupSerializer = GroupDetailSerializer
 
 
 # ====== Nouveaux serializers ======
-
 class ExternalMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupExternalMember
