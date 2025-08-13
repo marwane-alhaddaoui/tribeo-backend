@@ -50,6 +50,7 @@ INSTALLED_APPS = [
      'apps.groups',
      'apps.teams',
      'apps.chat',
+     'apps.billing',
 ]
 
 MIDDLEWARE = [
@@ -153,3 +154,17 @@ AUTH_USER_MODEL = 'users.CustomUser'
 
 
 GROUP_CREATION_POLICY = "ANY_MEMBER"  # "COACH_ONLY" | "PREMIUM_ONLY" | "COACH_OR_PREMIUM"
+
+PLAN_LIMITS = {
+    "FREE":    {"sessions_create_per_month": 1, "sessions_join_per_month": 3, "max_groups_joined": 1, "can_create_groups": False},
+    "PREMIUM": {"sessions_create_per_month": None, "sessions_join_per_month": None, "max_groups_joined": None, "can_create_groups": True},
+    "COACH":   {"sessions_create_per_month": None, "sessions_join_per_month": None, "max_groups_joined": None, "can_create_groups": True},
+}
+
+
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PRODUCTS = {
+    "premium_month": {"price_id": os.getenv("STRIPE_PRICE_PREMIUM_MONTH", "")},
+    "coach_month":   {"price_id": os.getenv("STRIPE_PRICE_COACH_MONTH", "")},
+}

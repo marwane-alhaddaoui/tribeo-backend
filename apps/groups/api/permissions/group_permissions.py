@@ -2,6 +2,7 @@
 from typing import Any, Optional
 from rest_framework.permissions import BasePermission, SAFE_METHODS
 from apps.groups.models import Group, GroupMember
+from django.conf import settings  # ← ajouté
 
 def _resolve_group(obj: Any) -> Optional[Group]:
     """
@@ -20,19 +21,17 @@ def _resolve_group(obj: Any) -> Optional[Group]:
 
 
 class CanCreateGroup(BasePermission):
-    """Créer un groupe: coach OU admin/staff/superuser."""
+    """
+    Création de groupe: autorisée selon le plan (PLAN_LIMITS[plan]["can_create_groups"]).
+    """
     def has_permission(self, request, view):
         if request.method != "POST":
             return True
         u = getattr(request, "user", None)
         if not u or not u.is_authenticated:
             return False
-        return (
-            getattr(u, "is_coach", False) or          # ← propriété ajoutée ci-dessus
-            getattr(u, "is_superuser", False) or
-            getattr(u, "is_staff", False) or
-            getattr(u, "role", "").lower() == "admin" # ceinture+bretelles si jamais
-        )
+        limits = settings.PLAN_LIMITS.get(getattr(u, "plan", "FREE"), settings.PLAN_LIMITS["FREE"])
+        return bool(limits.get("can_create_groups"))
 
 
 class IsGroupOwnerOrManager(BasePermission):

@@ -27,4 +27,5 @@ urlpatterns = [
     path('api/sport_sessions/', include('apps.sport_sessions.urls')),
     path('api/sports/', include('sports.urls')),
     path('api/', include('apps.chat.urls')),
+    path('api/billing/', include('apps.billing.api.urls')),
 ]

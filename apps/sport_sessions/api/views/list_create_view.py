@@ -4,6 +4,8 @@ from django.db.models import Q
 from apps.sport_sessions.models import SportSession
 from apps.sport_sessions.api.serializers.session_serializer import SessionSerializer
 from apps.groups.models import GroupMember
+from rest_framework.exceptions import ValidationError
+from apps.billing.services.quotas import usage_for, get_limits_for
 
 class SessionListCreateView(generics.ListCreateAPIView):
     """
@@ -101,9 +103,22 @@ class SessionListCreateView(generics.ListCreateAPIView):
         if not request.user.is_authenticated:
             return Response({"detail": "Auth requise."}, status=status.HTTP_401_UNAUTHORIZED)
     
+       # --- QUOTA: création de sessions ---
+        limits = get_limits_for(request.user)
+        if limits["sessions_create_per_month"] is not None:
+            uusage = usage_for(request.user)
+            if uusage.sessions_created >= limits["sessions_create_per_month"]:
+                raise ValidationError("Quota mensuel de création de sessions atteint pour votre plan.")
+        
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         session = serializer.save(creator=request.user)
         session.participants.add(request.user)  # sécurité
+        
+        # --- incrément usage après succès ---
+        uusage = usage_for(request.user)
+        uusage.sessions_created += 1
+        uusage.save()
+        
     
         return Response(self.get_serializer(session).data, status=status.HTTP_201_CREATED)
