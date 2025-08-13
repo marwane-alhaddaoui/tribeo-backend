@@ -48,7 +48,12 @@ class GroupListSerializer(serializers.ModelSerializer):
         ]
 
     def get_coach(self, obj):
-        return obj.owner.email if obj.owner_id else None
+        # Pour la LISTE, on garde un format simple (compat)
+        try:
+            u = obj.owner if getattr(obj, "owner_id", None) else None
+            return u.email if u else None
+        except Exception:
+            return None
 
     def _user(self):
         req = self.context.get("request")
@@ -85,39 +90,112 @@ class GroupDetailSerializer(GroupListSerializer):
     # ✍️ ici on rend le champ écrivable pour create/update
     group_type = serializers.ChoiceField(choices=Group.GroupType.choices, required=False)
 
+    # Dans le détail, on renvoie 'coach' en OBJET complet
+    coach = serializers.SerializerMethodField()
     members = serializers.SerializerMethodField()
-    # external_members = ExternalMemberSerializer(many=True, read_only=True)
+    is_group_coach = serializers.SerializerMethodField()
 
     class Meta(GroupListSerializer.Meta):
-        fields = GroupListSerializer.Meta.fields + ["members"]
+        fields = GroupListSerializer.Meta.fields + [
+            "members",
+            "is_group_coach",
+        ]
+        read_only_fields = [
+            "visibility", "join_policy",
+            "coach", "members_count",
+            "is_member", "is_owner_or_manager",
+            "created_at",
+        ]
+
+    def _resolve_coach_user(self, obj):
+        """
+        Retourne l'utilisateur coach:
+        - si champ coach_id/coac h existe -> obj.coach
+        - sinon fallback sur owner
+        """
+        if hasattr(obj, "coach_id") and getattr(obj, "coach_id", None):
+            try:
+                return obj.coach
+            except Exception:
+                pass
+        # fallback owner
+        try:
+            return obj.owner if getattr(obj, "owner_id", None) else None
+        except Exception:
+            return None
+
+    def get_coach(self, obj):
+        u = self._resolve_coach_user(obj)
+        if not u:
+            return None
+        return {
+            "id": u.id,
+            "username": getattr(u, "username", None),
+            "email": getattr(u, "email", None),
+            # rôle global (table user)
+            "role": getattr(u, "role", None),
+            # optionnel: identité
+            "first_name": getattr(u, "first_name", None),
+            "last_name": getattr(u, "last_name", None),
+        }
 
     def get_members(self, obj):
         rows = []
-        # Inclure l'owner
-        if obj.owner_id and obj.owner:
+
+        # Inclure l'owner (avec user_role = rôle global)
+        if getattr(obj, "owner_id", None) and getattr(obj, "owner", None):
             rows.append({
                 "id": obj.owner_id,
                 "username": obj.owner.username,
                 "email": obj.owner.email,
                 "first_name": obj.owner.first_name,
                 "last_name": obj.owner.last_name,
+                # rôle DANS le groupe (owner)
                 "role": GroupMember.ROLE_OWNER,
+                # rôle GLOBAL utilisateur
+                "user_role": getattr(obj.owner, "role", None),
             })
 
         # Membres actifs
         qs = obj.memberships.select_related("user").filter(status=GroupMember.STATUS_ACTIVE)
         for gm in qs:
-            if gm.user_id == obj.owner_id:
+            if gm.user_id == getattr(obj, "owner_id", None):
                 continue  # éviter doublon
+            u = gm.user
             rows.append({
                 "id": gm.user_id,
-                "username": gm.user.username,
-                "email": gm.user.email,
-                "first_name": gm.user.first_name,
-                "last_name": gm.user.last_name,
+                "username": u.username,
+                "email": u.email,
+                "first_name": u.first_name,
+                "last_name": u.last_name,
+                # rôle DANS le groupe (member/manager/owner...)
                 "role": gm.role,
+                # rôle GLOBAL utilisateur (admin/user/coach...)
+                "user_role": getattr(u, "role", None),
             })
         return rows
+
+    def get_is_group_coach(self, obj):
+        """
+        True ssi l'utilisateur courant est le coach de ce groupe COACH.
+        - Si le modèle a un champ coach_id → on compare dessus
+        - Sinon, fallback owner = coach
+        """
+        request = self.context.get("request")
+        u = getattr(request, "user", None)
+        if not u or not u.is_authenticated:
+            return False
+
+        # Doit être un groupe de type COACH
+        if getattr(obj, "group_type", None) != Group.GroupType.COACH:
+            return False
+
+        coach_id = getattr(obj, "coach_id", None)
+        if coach_id is not None:
+            return u.id == coach_id
+
+        # fallback : owner = coach
+        return getattr(obj, "owner_id", None) == u.id
 
 
 # Alias de compat (si d'anciens imports l'utilisent)
@@ -145,4 +223,6 @@ class JoinRequestSerializer(serializers.ModelSerializer):
             "id": u.id,
             "username": u.username,
             "email": u.email,
+            # On expose aussi le rôle global ici (utile côté admin/coach)
+            "role": getattr(u, "role", None),
         }

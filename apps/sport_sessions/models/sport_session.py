@@ -44,6 +44,9 @@ class SportSession(models.Model):
     date = models.DateField(help_text="Date de la session.")
     start_time = models.TimeField(help_text="Heure de début de la session.")
 
+    #-- Champs pour sessions de training et external attendees
+    max_players = models.PositiveIntegerField(null=True, blank=True)
+
     # --- Nouveaux champs pour logique Coach ---
     event_type = models.CharField(max_length=16, choices=EventType.choices, default=EventType.TRAINING)
     format = models.CharField(max_length=16, choices=Format.choices, default=Format.SOLO)
@@ -97,3 +100,17 @@ class SportSession(models.Model):
 
     def __str__(self):
         return f"{self.title} - {self.sport.name} ({self.date})"
+
+     # ---- helpers capacité/compte ----
+    def attendees_count(self) -> int:
+        internals = self.participants.count()
+        externals = self.external_attendees.count()
+        return internals + externals
+
+    def is_full(self) -> bool:
+        return bool(self.max_players) and self.attendees_count() >= self.max_players
+
+    def available_spots(self) -> int:
+        if not self.max_players:
+            return 999999
+        return max(self.max_players - self.attendees_count(), 0)

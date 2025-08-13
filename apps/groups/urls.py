@@ -9,6 +9,7 @@ from apps.groups.api.views.group_requests_views import (
     ListJoinRequestsView, ApproveJoinRequestView, RejectJoinRequestView)
 from apps.groups.api.views.group_external_member_views import (
     ExternalMemberListCreateView, ExternalMemberDeleteView)
+from apps.sport_sessions.api.views.attendance_view import SessionAttendanceView
 
 urlpatterns = [
     # CRUD
@@ -31,4 +32,7 @@ urlpatterns = [
     # External Members (owner only)
     path('<int:pk>/external-members/',               ExternalMemberListCreateView.as_view(), name='group_external_list_create'),
     path('external-members/<int:eid>/',              ExternalMemberDeleteView.as_view(),     name='group_external_delete'),
+
+    path('<int:gid>/trainings/<int:pk>/attendance/', SessionAttendanceView.as_view(), name='group-training-attendance'),
+
 ]

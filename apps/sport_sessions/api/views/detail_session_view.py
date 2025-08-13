@@ -14,8 +14,8 @@ class SessionDetailView(generics.RetrieveUpdateDestroyAPIView):
     def get_queryset(self):
         # évite N+1 : charge creator + sport + group + teams, et précharge participants
         return (SportSession.objects
-                .select_related("sport", "creator", "group", "home_team", "away_team")
-                .prefetch_related("participants"))
+        .select_related("creator", "sport", "group", "home_team", "away_team")
+        .prefetch_related("participants", "external_attendees"))
 
     def perform_update(self, serializer):
         session = self.get_object()

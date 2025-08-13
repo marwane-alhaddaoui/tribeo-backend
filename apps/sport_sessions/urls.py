@@ -5,7 +5,7 @@ from apps.sport_sessions.api.views.leave_session_view import LeaveSessionView
 from apps.sport_sessions.api.views.detail_session_view import SessionDetailView
 from apps.sport_sessions.api.views.admin_views import AdminSessionListView, AdminSessionDetailView
 from apps.sport_sessions.api.views import coach_views
-
+from apps.sport_sessions.api.views.attendance_view import SessionAttendanceView
 
 urlpatterns = [
     path('', SessionListCreateView.as_view(), name='list_create_session'),
@@ -21,4 +21,4 @@ urlpatterns = [
     path('<int:pk>/lock/', coach_views.LockSessionView.as_view(), name='lock_session'),
     path('<int:pk>/score/', coach_views.ScoreSessionView.as_view(), name='score_session'),
     path('<int:pk>/cancel/', coach_views.CancelSessionView.as_view(), name='cancel_session'),
-]
+    path("<int:pk>/attendance/", SessionAttendanceView.as_view(), name="session-attendance"),]

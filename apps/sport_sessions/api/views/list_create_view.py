@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from django.db.models import Q
 from apps.sport_sessions.models import SportSession
 from apps.sport_sessions.api.serializers.session_serializer import SessionSerializer
-
+from apps.groups.models import GroupMember
 
 class SessionListCreateView(generics.ListCreateAPIView):
     """
@@ -37,73 +37,73 @@ class SessionListCreateView(generics.ListCreateAPIView):
         return [permissions.IsAuthenticated()]
 
     def get_queryset(self):
-        user = self.request.user
-        params = self.request.query_params
+        user = self.request.user if self.request.user.is_authenticated else None
+        p = self.request.query_params
 
-        mine = params.get('mine') == 'true'
-        public_only = params.get('is_public') == 'true'
-        sport_id = params.get('sport_id')
-        search = params.get('search')
-        date_from = params.get('date_from')
-        date_to = params.get('date_to')
+        # ==== BASE OPTIMISÉE (step 5) ====
+        qs = (SportSession.objects
+              .select_related("creator", "sport", "group", "home_team", "away_team")
+              .prefetch_related("participants", "external_attendees"))
 
-        # 🔓 Visiteur (non authentifié) → seulement public
-        if not user.is_authenticated:
-            queryset = SportSession.objects.filter(is_public=True)
+        # ---- Filtres communs ----
+        if p.get("sport_id"):
+            qs = qs.filter(sport_id=p["sport_id"])
+        if p.get("group_id"):
+            qs = qs.filter(group_id=p["group_id"])
+        if p.get("event_type"):
+            qs = qs.filter(event_type=p["event_type"])
+        if p.get("city"):
+            qs = qs.filter(city__iexact=p["city"])
+        if p.get("search"):
+            s = p["search"]
+            qs = qs.filter(
+                Q(title__icontains=s) |
+                Q(description__icontains=s) |
+                Q(location__icontains=s)
+            )
+        if p.get("date_from"):
+            qs = qs.filter(date__gte=p["date_from"])
+        if p.get("date_to"):
+            qs = qs.filter(date__lte=p["date_to"])
+
+        # ---- Visibilité / portée ----
+        if not user:
+            # Anonyme → uniquement PUBLIC
+            qs = qs.filter(visibility=SportSession.Visibility.PUBLIC)
 
         else:
-            # 🔹 Dashboard perso
-            if mine:
-                queryset = SportSession.objects.filter(
-                    Q(creator=user) | Q(participants=user)
-                ).distinct()
+            # ?mine=true → sessions créées ou rejointes
+            if p.get("mine") == "true":
+                qs = qs.filter(Q(creator=user) | Q(participants=user))
+
             else:
-                # 🔹 Forcer l'affichage public si demandé
-                if public_only:
-                    queryset = SportSession.objects.filter(is_public=True)
+                role = getattr(user, "role", None)
+
+                # Base: PUBLIC ou où je suis participant
+                scope = Q(visibility=SportSession.Visibility.PUBLIC) | Q(participants=user)
+
+                # Si on cible un groupe précis ET que je suis membre actif → inclure ses GROUP
+                gid = p.get("group_id")
+                if gid and GroupMember.objects.filter(
+                    group_id=gid, user=user, status=GroupMember.STATUS_ACTIVE
+                ).exists():
+                    scope |= Q(group_id=gid, visibility=SportSession.Visibility.GROUP)
+
+                # Option admin/coach: tout voir si ?all=true
+                if p.get("all") == "true" and role in ["admin", "coach"]:
+                    pass  # ne filtre pas plus
                 else:
-                    # 🔹 Logique par rôle
-                    role = getattr(user, 'role', None)
-                    if role in ['admin', 'coach']:
-                        queryset = SportSession.objects.all()
-                    else:
-                        queryset = SportSession.objects.filter(is_public=True)
+                    qs = qs.filter(scope)
 
-        # 🎯 Filtres additionnels (communs)
-        if sport_id:
-            queryset = queryset.filter(sport_id=sport_id)
-
-        if search:
-            queryset = queryset.filter(
-                Q(title__icontains=search) |
-                Q(description__icontains=search) |
-                Q(location__icontains=search)
-            )
-
-        # 📅 Plage de dates (inclusif)
-        if date_from:
-            queryset = queryset.filter(date__gte=date_from)
-        if date_to:
-            queryset = queryset.filter(date__lte=date_to)
-
-        # Tri par date/heure (proche → loin)
-        return queryset.order_by('date', 'start_time')
+        return qs.order_by("-date", "-start_time", "-id").distinct()
 
     def post(self, request, *args, **kwargs):
-        user = request.user
-        data = request.data.copy()
-
-        # Forcer public si pas admin/coach
-        role = getattr(user, 'role', None)
-        if role not in ['admin', 'coach']:
-            data['is_public'] = True
-            data['visibility'] = SportSession.Visibility.PUBLIC  # sync visibility
-
-        serializer = self.get_serializer(data=data)
+        if not request.user.is_authenticated:
+            return Response({"detail": "Auth requise."}, status=status.HTTP_401_UNAUTHORIZED)
+    
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        session = serializer.save(creator=user)
-
-        # ✅ Ajouter créateur comme participant
-        session.participants.add(user)
-
+        session = serializer.save(creator=request.user)
+        session.participants.add(request.user)  # sécurité
+    
         return Response(self.get_serializer(session).data, status=status.HTTP_201_CREATED)
