@@ -1,0 +1,1 @@
+# apps/chat/__init__.py

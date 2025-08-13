@@ -49,6 +49,7 @@ INSTALLED_APPS = [
      'apps.sports',
      'apps.groups',
      'apps.teams',
+     'apps.chat',
 ]
 
 MIDDLEWARE = [
