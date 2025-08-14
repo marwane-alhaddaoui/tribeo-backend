@@ -14,8 +14,19 @@ import sys
 
 from pathlib import Path
 from decouple import config
+import warnings
 
-
+def env(key: str, default=None, required: bool = False):
+    val = os.getenv(key)
+    if not val:
+        try:
+            from decouple import config as _config
+            val = _config(key, default=None)
+        except Exception:
+            val = None
+    if (val is None or val == "") and required and default is None:
+        raise RuntimeError(f"Missing required environment variable: {key}")
+    return val if val not in (None, "") else default
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, os.path.join(BASE_DIR, 'apps'))
@@ -162,9 +173,16 @@ PLAN_LIMITS = {
 }
 
 
-STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_SECRET_KEY     = env("STRIPE_SECRET_KEY", required=True)
+STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", default="")
+
 STRIPE_PRODUCTS = {
-    "premium_month": {"price_id": os.getenv("STRIPE_PRICE_PREMIUM_MONTH", "")},
-    "coach_month":   {"price_id": os.getenv("STRIPE_PRICE_COACH_MONTH", "")},
+    "premium_month": {"price_id": env("STRIPE_PRICE_PREMIUM_MONTH", required=True)},
+    "coach_month":   {"price_id": env("STRIPE_PRICE_COACH_MONTH", default="")},
 }
+STRIPE_ENABLE_VERIFY = os.getenv("STRIPE_ENABLE_VERIFY", "false").lower() == "true"
+FRONTEND_URL = env("FRONTEND_URL", default="http://localhost:5173")
+
+for _plan, _cfg in STRIPE_PRODUCTS.items():
+    if not _cfg.get("price_id"):
+        warnings.warn(f"[Billing] STRIPE_PRODUCTS[{_plan}].price_id is empty — this plan cannot be purchased.")
