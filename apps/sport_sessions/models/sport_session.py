@@ -3,6 +3,8 @@ from django.conf import settings
 from django.core.validators import MinValueValidator
 from sports.models.sport import Sport
 from apps.teams.models.team import Team
+from django.utils import timezone
+from datetime import datetime
 
 class SportSession(models.Model):
     """
@@ -45,7 +47,7 @@ class SportSession(models.Model):
     start_time = models.TimeField(help_text="Heure de début de la session.")
 
     #-- Champs pour sessions de training et external attendees
-    max_players = models.PositiveIntegerField(null=True, blank=True)
+    #max_players = models.PositiveIntegerField(null=True, blank=True)
 
     # --- Nouveaux champs pour logique Coach ---
     event_type = models.CharField(max_length=16, choices=EventType.choices, default=EventType.TRAINING)
@@ -114,3 +116,42 @@ class SportSession(models.Model):
         if not self.max_players:
             return 999999
         return max(self.max_players - self.attendees_count(), 0)
+    
+     # ---- time helpers ----
+    def start_datetime(self):
+        dt = datetime.combine(self.date, self.start_time)
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_current_timezone())
+        return dt
+
+    def has_started(self) -> bool:
+        return timezone.now() >= self.start_datetime()
+
+    def required_players(self) -> int:
+        # Seuil mini pour considérer une session "valide"
+        if self.team_mode and self.min_players_per_team:
+            return max(2, self.min_players_per_team * 2)
+        # défaut: 2 (ou 1 si max_players=1)
+        if self.max_players and self.max_players < 2:
+            return self.max_players
+        return 2
+
+    def compute_status(self) -> str:
+        # Passé → FINISHED/CANCELED selon seuil mini atteint
+        if self.has_started():
+            return (self.Status.FINISHED
+                    if self.attendees_count() >= self.required_players()
+                    else self.Status.CANCELED)
+        # Futur → lock si complet
+        if self.is_full():
+            return self.Status.LOCKED
+        # Sinon ouvert
+        return self.Status.OPEN
+
+    def apply_status(self, persist: bool = True) -> str:
+        new_status = self.compute_status()
+        if new_status != self.status:
+            self.status = new_status
+            if persist:
+                self.save(update_fields=["status"])
+        return self.status

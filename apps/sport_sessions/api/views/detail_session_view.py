@@ -2,6 +2,7 @@ from rest_framework import generics, permissions
 from rest_framework.exceptions import PermissionDenied
 from apps.sport_sessions.models import SportSession
 from apps.sport_sessions.api.serializers.session_serializer import SessionSerializer
+from rest_framework.response import Response
 
 class SessionDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
@@ -29,3 +30,11 @@ class SessionDetailView(generics.RetrieveUpdateDestroyAPIView):
         if user != instance.creator and getattr(user, "role", None) != "admin":
             raise PermissionDenied("Vous n'avez pas l'autorisation de supprimer cette session.")
         instance.delete()
+        
+        
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # NEW: synchronise le statut à l’instant T
+        instance.apply_status(persist=True)
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)

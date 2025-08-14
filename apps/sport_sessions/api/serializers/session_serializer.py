@@ -6,6 +6,7 @@ from apps.sport_sessions.models import SportSession, SessionExternalAttendee   #
 from apps.sports.api.serializers.sport_serializer import SportSerializer
 from apps.groups.models import Group, GroupMember, GroupExternalMember          # ⬅️ ajout GroupExternalMember
 import requests
+from django.utils.functional import cached_property
 
 User = get_user_model()
 
@@ -34,6 +35,11 @@ class SessionSerializer(serializers.ModelSerializer):
     )
     available_slots = serializers.SerializerMethodField()
     team_count = serializers.SerializerMethodField()
+    
+      # NEW:
+    is_full = serializers.SerializerMethodField()
+    computed_status = serializers.SerializerMethodField()
+    actions = serializers.SerializerMethodField()
 
     class Meta:
         model = SportSession
@@ -45,16 +51,21 @@ class SessionSerializer(serializers.ModelSerializer):
             'max_players','min_players_per_team','max_players_per_team',
             'creator','participants','created_at','updated_at',
             'available_slots','team_count',
+            # NEW:
+            'is_full','computed_status','actions',
         ]
         read_only_fields = [
             'creator','participants','created_at','updated_at',
             'latitude','longitude','status','is_public',
+             # NEW:
+            'is_full','computed_status','actions','available_slots'
         ]
 
     def get_available_slots(self, obj):
         if obj.max_players is None:
             return 0
-        return max(obj.max_players - obj.participants.count(), 0)
+    # 🔁 prend en compte externes + internes
+        return max(obj.max_players - obj.attendees_count(), 0)
 
     def get_team_count(self, obj):
         return 2 if obj.team_mode else 1
@@ -154,3 +165,43 @@ class SessionSerializer(serializers.ModelSerializer):
                 )
 
         return session
+    
+     # NEW
+    def get_is_full(self, obj):
+        try:
+            return obj.is_full()
+        except Exception:
+            return False
+
+    def get_computed_status(self, obj):
+        """
+        On expose 'FULL' (affichage) quand DB=LOCKED.
+        """
+        try:
+            status = obj.compute_status() if hasattr(obj, "compute_status") else (obj.status or "OPEN")
+            if status == obj.Status.LOCKED and obj.is_full() and not obj.has_started():
+                return "FULL"
+            return status
+        except Exception:
+            return obj.status or "OPEN"
+
+    def get_actions(self, obj):
+        req = self.context.get("request")
+        user = getattr(req, "user", None)
+        is_auth = bool(user and user.is_authenticated)
+        is_creator = is_auth and user == obj.creator
+        is_participant = is_auth and obj.participants.filter(pk=user.pk).exists()
+
+        # statut courant à l’instant T (sans créer d’effet de bord)
+        status = self.get_computed_status(obj)
+        is_past = obj.has_started()
+        is_final = status in ["CANCELED", "FINISHED"]
+
+        can_join = is_auth and (not is_final) and (not is_past) and (not obj.is_full()) and (not is_participant)
+        # 💡 créateur ne peut plus quitter sa propre session
+        can_leave = is_auth and is_participant and (not is_final) and (not is_past) and (not is_creator)
+
+        return {
+            "can_join": can_join,
+            "can_leave": can_leave,
+        }
