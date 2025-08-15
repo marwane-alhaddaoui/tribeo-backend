@@ -67,16 +67,48 @@ def _normalize_limits(raw: Dict[str, Any]) -> Dict[str, Any]:
         ),
     }
 
+def _resolve_plan(user) -> str:
+    """
+    Résout le plan de l'utilisateur de façon robuste :
+      1) BillingProfile.plan si présent ET status == 'active'
+      2) fallbacks: user.plan / user.account_type / user.role
+      3) staff/superuser => PREMIUM (bypass pratique)
+      4) défaut: FREE
+    Normalise toujours en UPPERCASE.
+    """
+    # Bypass staff/superuser (choix: PREMIUM illimité dans settings.PLAN_LIMITS)
+    if getattr(user, "is_staff", False) or getattr(user, "is_superuser", False):
+        return "PREMIUM"
+
+    # Source Stripe (BillingProfile)
+    bp = getattr(user, "billing", None)
+    bp_plan = getattr(bp, "plan", None)
+    bp_status = getattr(bp, "status", None)
+    if bp_plan:
+        # n'accepter le plan billing que si la souscription est active
+        if not bp_status or str(bp_status).lower() != "active":
+            return "FREE"
+        return str(bp_plan).upper()
+
+    # Fallbacks sur des champs du user
+    raw_plan = (
+        getattr(user, "plan", None)
+        or getattr(user, "account_type", None)
+        or getattr(user, "role", None)
+        or "FREE"
+    )
+    return str(raw_plan).upper()
+
 # -----------------------
 # API publique du service
 # -----------------------
 
 def get_limits_for(user) -> dict:
     """
-    Lit le plan depuis user.billing.plan, puis mappe settings.PLAN_LIMITS
+    Détermine le plan via _resolve_plan, puis mappe settings.PLAN_LIMITS
     vers un dictionnaire normalisé (cf _normalize_limits).
     """
-    plan = getattr(getattr(user, "billing", None), "plan", None) or BillingProfile.PLAN_FREE
+    plan = _resolve_plan(user)
     raw = _raw_limits_from_settings(plan)
     return _normalize_limits(raw)
 
@@ -108,6 +140,9 @@ def _lt_or_unlimited(used: int, limit: Optional[int]) -> bool:
     return True if limit is None else (used < int(limit))
 
 def can_create_session(user) -> bool:
+    # Bypass explicite pour staff/superuser (double filet de sécurité)
+    if getattr(user, "is_staff", False) or getattr(user, "is_superuser", False):
+        return True
     limits = get_limits_for(user)
     u = usage_for(user)
     limit = limits.get("sessions_create_per_month", None)
