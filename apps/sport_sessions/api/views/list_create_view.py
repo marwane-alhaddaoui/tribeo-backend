@@ -12,6 +12,10 @@ from apps.billing.services.quotas import usage_for            # compteurs (usage
 from apps.users.utils.plan_limits import get_limits_for       # limites normalisées (FREE/PREMIUM/COACH)
 
 
+def _truthy(v) -> bool:
+    return str(v).strip().lower() in {"1", "true", "t", "yes", "y"}
+
+
 class SessionListCreateView(generics.ListCreateAPIView):
     """
     GET:
@@ -24,7 +28,8 @@ class SessionListCreateView(generics.ListCreateAPIView):
                 - User standard → publiques + celles où il est participant
                 - Coach/Admin   → tout si ?all=true, sinon publiques + où il est participant
         Filtres communs:
-            - ?sport_id=, ?group_id=, ?event_type=, ?city=, ?search=
+            - ?sport_id=, ?group_id=, ?event_type=, ?search=
+            - ?country=, ?city= (alias sur `location__icontains`)
             - ?date_from=YYYY-MM-DD, ?date_to=YYYY-MM-DD
 
     POST:
@@ -59,19 +64,33 @@ class SessionListCreateView(generics.ListCreateAPIView):
             qs = qs.filter(group_id=p["group_id"])
         if p.get("event_type"):
             qs = qs.filter(event_type=p["event_type"])
-        if p.get("city"):
-            qs = qs.filter(city__iexact=p["city"])
+
+        # ✅ BEST PRACTICE (modèle sans champs city/country) :
+        # on mappe les paramètres country/city vers location__icontains
+        country = (p.get("country") or "").strip()
+        if country:
+            qs = qs.filter(location__icontains=country)
+
+        city = (p.get("city") or "").strip()
+        if city:
+            qs = qs.filter(location__icontains=city)  # gère aussi les CP (ex: "35460")
+
         if p.get("search"):
-            s = p["search"]
-            qs = qs.filter(
-                Q(title__icontains=s) |
-                Q(description__icontains=s) |
-                Q(location__icontains=s)
-            )
+            s = p["search"].strip()
+            if s:
+                qs = qs.filter(
+                    Q(title__icontains=s) |
+                    Q(description__icontains=s) |
+                    Q(location__icontains=s)
+                )
         if p.get("date_from"):
             qs = qs.filter(date__gte=p["date_from"])
         if p.get("date_to"):
             qs = qs.filter(date__lte=p["date_to"])
+
+        # Filtre explicite is_public si demandé
+        if "is_public" in p and _truthy(p.get("is_public")):
+            qs = qs.filter(visibility=SportSession.Visibility.PUBLIC)
 
         # ---- Visibilité / portée ----
         if not user:
@@ -79,7 +98,7 @@ class SessionListCreateView(generics.ListCreateAPIView):
             qs = qs.filter(visibility=SportSession.Visibility.PUBLIC)
         else:
             # ?mine=true → sessions créées OU rejointes
-            if p.get("mine") == "true":
+            if _truthy(p.get("mine", "false")):
                 qs = qs.filter(Q(creator=user) | Q(participants=user))
             else:
                 role = (getattr(user, "role", "") or "").lower()
@@ -95,7 +114,7 @@ class SessionListCreateView(generics.ListCreateAPIView):
                     scope |= Q(group_id=gid, visibility=SportSession.Visibility.GROUP)
 
                 # admin/coach peuvent tout voir si ?all=true
-                if p.get("all") == "true" and role in ("admin", "coach"):
+                if _truthy(p.get("all", "false")) and role in ("admin", "coach"):
                     pass  # pas de filtre supplémentaire
                 else:
                     qs = qs.filter(scope)
@@ -125,7 +144,7 @@ class SessionListCreateView(generics.ListCreateAPIView):
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
 
-        # Save + auto‑participation créateur
+        # Save + auto-participation créateur
         session = serializer.save(creator=request.user)
         if not session.participants.filter(pk=request.user.pk).exists():
             session.participants.add(request.user)
