@@ -1,7 +1,7 @@
 from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator
-from sports.models.sport import Sport
+from sports.models.sport import Sport  # garde comme chez toi si c'est bien ce chemin
 from apps.teams.models.team import Team
 from django.utils import timezone
 from datetime import datetime
@@ -46,11 +46,8 @@ class SportSession(models.Model):
     date = models.DateField(help_text="Date de la session.")
     start_time = models.TimeField(help_text="Heure de début de la session.")
 
-    #-- Champs pour sessions de training et external attendees
-    #max_players = models.PositiveIntegerField(null=True, blank=True)
-
-    # --- Nouveaux champs pour logique Coach ---
-    event_type = models.CharField(max_length=16, choices=EventType.choices, default=EventType.TRAINING)
+    # --- Champs coach / logique session ---
+    event_type = models.CharField(max_length=16, choices=EventType.choices, default=EventType.FRIENDLY)
     format = models.CharField(max_length=16, choices=Format.choices, default=Format.SOLO)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
     requires_approval = models.BooleanField(default=False, help_text="Si activé, le coach doit approuver les demandes.")
@@ -65,7 +62,8 @@ class SportSession(models.Model):
     visibility = models.CharField(max_length=10, choices=Visibility.choices, default=Visibility.PRIVATE)
     group = models.ForeignKey("groups.Group", null=True, blank=True, on_delete=models.SET_NULL, related_name="sessions")
 
-    is_public = models.BooleanField(default=True, help_text="⚠️ Hérité de visibility, ne pas modifier manuellement.")
+    # ✅ cohérent avec visibility par défaut (PRIVATE)
+    is_public = models.BooleanField(default=False, help_text="⚠️ Hérité de visibility, ne pas modifier manuellement.")
     team_mode = models.BooleanField(default=False, help_text="Active les équipes pour les sports à adversité.")
     max_players = models.PositiveIntegerField(default=10, validators=[MinValueValidator(1)], help_text="Nombre total max.")
     min_players_per_team = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)], help_text="Min par équipe.")
@@ -90,20 +88,7 @@ class SportSession(models.Model):
         self.is_public = (self.visibility == self.Visibility.PUBLIC)
         super().save(*args, **kwargs)
 
-    # --- Méthodes utilitaires ---
-    def is_full(self):
-        return self.participants.count() >= self.max_players
-
-    def available_spots(self):
-        return max(self.max_players - self.participants.count(), 0)
-
-    def requires_teams(self):
-        return self.team_mode
-
-    def __str__(self):
-        return f"{self.title} - {self.sport.name} ({self.date})"
-
-     # ---- helpers capacité/compte ----
+    # --- Méthodes utilitaires / capacité ---
     def attendees_count(self) -> int:
         internals = self.participants.count()
         externals = self.external_attendees.count()
@@ -116,8 +101,8 @@ class SportSession(models.Model):
         if not self.max_players:
             return 999999
         return max(self.max_players - self.attendees_count(), 0)
-    
-     # ---- time helpers ----
+
+    # ---- time helpers ----
     def start_datetime(self):
         dt = datetime.combine(self.date, self.start_time)
         if timezone.is_naive(dt):
@@ -155,3 +140,6 @@ class SportSession(models.Model):
             if persist:
                 self.save(update_fields=["status"])
         return self.status
+
+    def __str__(self):
+        return f"{self.title} - {self.sport.name} ({self.date})"

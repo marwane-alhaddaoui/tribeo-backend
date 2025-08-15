@@ -35,7 +35,7 @@ class UserMonthlyUsage(models.Model):
     groups_created = models.PositiveIntegerField(default=0)
     participations = models.PositiveIntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
-
+    trainings_created = models.IntegerField(default=0)
     class Meta:
         unique_together = ("user", "year_month")
 

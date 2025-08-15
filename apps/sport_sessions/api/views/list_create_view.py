@@ -7,9 +7,12 @@ from apps.sport_sessions.models import SportSession
 from apps.sport_sessions.api.serializers.session_serializer import SessionSerializer
 from apps.groups.models import GroupMember
 
-# Quotas / limites
-from apps.billing.services.quotas import usage_for            # compteurs (usage utilisateur)
-from apps.users.utils.plan_limits import get_limits_for       # limites normalisées (FREE/PREMIUM/COACH)
+# Quotas / limites — garder uniquement ces imports
+from apps.billing.services.quotas import (
+    can_create_session,
+    can_create_training,
+    increment_usage,
+)
 
 
 def _truthy(v) -> bool:
@@ -34,8 +37,8 @@ class SessionListCreateView(generics.ListCreateAPIView):
 
     POST:
         - Auth requis.
-        - User standard → création forcée en PUBLIC.
-        - Coach/Admin   → PUBLIC / PRIVATE / GROUP autorisés.
+        - User/Premium → création forcée en PUBLIC + event_type=FRIENDLY (jamais TRAINING).
+        - Coach/Admin  → peut créer TRAINING (group obligatoire, visibility=GROUP) ou autre type.
     """
     queryset = SportSession.objects.all()
     serializer_class = SessionSerializer
@@ -65,15 +68,14 @@ class SessionListCreateView(generics.ListCreateAPIView):
         if p.get("event_type"):
             qs = qs.filter(event_type=p["event_type"])
 
-        # ✅ BEST PRACTICE (modèle sans champs city/country) :
-        # on mappe les paramètres country/city vers location__icontains
+        # country / city → alias sur location__icontains
         country = (p.get("country") or "").strip()
         if country:
             qs = qs.filter(location__icontains=country)
 
         city = (p.get("city") or "").strip()
         if city:
-            qs = qs.filter(location__icontains=city)  # gère aussi les CP (ex: "35460")
+            qs = qs.filter(location__icontains=city)
 
         if p.get("search"):
             s = p["search"].strip()
@@ -125,38 +127,72 @@ class SessionListCreateView(generics.ListCreateAPIView):
         if not request.user.is_authenticated:
             return Response({"detail": "Auth requise."}, status=status.HTTP_401_UNAUTHORIZED)
 
-        # --- QUOTA: création de sessions ---
-        limits = get_limits_for(request.user)  # dict normalisé depuis settings.PLAN_LIMITS
-        uusage = usage_for(request.user)
-
-        max_create = limits["sessions_create_per_month"]  # peut être int ou None (illimité)
-        if isinstance(max_create, int) and uusage.sessions_created >= max_create:
-            raise ValidationError("Quota mensuel de création de sessions atteint pour votre plan.")
-
-        # Enforcement visibilité selon rôle
         data = request.data.copy()
+
+        # ---- Rôle & type ----
         role = (getattr(request.user, "role", "") or "").lower()
-        if role not in ("admin", "coach"):
-            # User standard → force PUBLIC et annule une éventuelle cible group/private
+        is_coach_or_admin = role in ("coach", "admin")
+
+        # Normalisation event_type; compat vieux clients: is_training=1/true -> TRAINING
+        evt = str(data.get("event_type", "")).strip().upper()
+        if not evt and _truthy(data.get("is_training", "false")):
+            evt = "TRAINING"
+            data["event_type"] = "TRAINING"  # on explicite
+
+        # ---- Quotas + règles métier
+        if not is_coach_or_admin:
+            # User/Premium → jamais TRAINING
+            if evt == "TRAINING":
+                raise ValidationError("Seuls les coachs peuvent créer une session d'entraînement.")
+            data["event_type"] = evt or "FRIENDLY"
             data["visibility"] = SportSession.Visibility.PUBLIC
+            data.pop("group", None)
             data.pop("group_id", None)
 
-        serializer = self.get_serializer(data=data)
+            if not can_create_session(request.user):
+                raise ValidationError("Quota de créations de sessions atteint pour votre plan.")
+        else:
+            # Coach/Admin
+            if not evt:
+                # défaut coach: TRAINING si rien envoyé (optionnel, mais pratique)
+                evt = "TRAINING"
+                data["event_type"] = "TRAINING"
+
+            if evt == "TRAINING":
+                gid = data.get("group") or data.get("group_id")
+                if not gid:
+                    raise ValidationError("Pour un entraînement, un group_id est obligatoire.")
+                data["group"] = gid
+                data["visibility"] = SportSession.Visibility.GROUP
+
+                if not can_create_training(request.user):
+                    raise ValidationError("Quota d'entraînements atteint pour votre plan.")
+            else:
+                if not can_create_session(request.user):
+                    raise ValidationError("Quota de créations de sessions atteint pour votre plan.")
+
+        # ---- Validation / création
+        serializer = self.get_serializer(data=data, context={"request": request})
         serializer.is_valid(raise_exception=True)
 
-        # Save + auto-participation créateur
+        # 🚫 Ne PAS passer is_training au save (le modèle ne connaît pas ce champ)
         session = serializer.save(creator=request.user)
+
+        # Auto-participation du créateur si pas déjà présent
         if not session.participants.filter(pk=request.user.pk).exists():
             session.participants.add(request.user)
 
-        # Statut initial puis synchro
+        # Statut initial puis synchro métier
         session.status = SportSession.Status.OPEN
         session.apply_status(persist=True)
 
-        # --- incrément usage après succès ---
-        uusage.sessions_created += 1
-        uusage.save()
+        # ---- Compteurs d'usage
+        if session.event_type == SportSession.EventType.TRAINING:
+            increment_usage(request.user, trainings=1)
+        else:
+            increment_usage(request.user, sessions=1)
 
-        # Retour avec context pour actions/computed_status
-        return Response(self.get_serializer(session, context={"request": request}).data,
-                        status=status.HTTP_201_CREATED)
+        return Response(
+            self.get_serializer(session, context={"request": request}).data,
+            status=status.HTTP_201_CREATED
+        )

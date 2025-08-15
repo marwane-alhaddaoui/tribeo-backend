@@ -39,33 +39,28 @@ def _first_present(d: Dict[str, Any], *keys, default=None):
     return default
 
 def _normalize_limits(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Normalise les clés possibles des settings vers un schéma commun.
-    Schéma commun renvoyé :
-      - sessions_create_per_month : int | None (None = illimité)
-      - sessions_join_per_month   : int | None
-      - max_groups                : int | None   (création/rejoindre selon ton modèle d’affaires)
-      - can_create_groups         : bool | None  (si présent dans settings)
-    On supporte plusieurs alias pour être compatible avec d’anciens noms de clés.
-    """
     return {
-        "sessions_create_per_month": _first_present(
-            raw,
-            "sessions_create_per_month", "max_sessions", default=None
-        ),
-        "sessions_join_per_month": _first_present(
-            raw,
-            "sessions_join_per_month", "max_participations", default=None
-        ),
-        "max_groups": _first_present(
-            raw,
-            "max_groups", "max_groups_joined", default=None
-        ),
-        "can_create_groups": _first_present(
-            raw,
-            "can_create_groups", default=None
-        ),
+        "sessions_create_per_month": _first_present(raw, "sessions_create_per_month", "max_sessions", default=None),
+        "sessions_join_per_month":   _first_present(raw, "sessions_join_per_month",   "max_participations", default=None),
+        "max_groups":                _first_present(raw, "max_groups", "max_groups_joined", default=None),
+        "can_create_groups":         _first_present(raw, "can_create_groups", default=None),
+
+        # NEW coach-specific:
+        "trainings_create_per_month": _first_present(raw, "trainings_create_per_month", default=None),
+        "can_create_trainings":       _first_present(raw, "can_create_trainings",       default=False),
     }
+
+
+def can_create_training(user) -> bool:
+    limits = get_limits_for(user)
+    if limits.get("can_create_trainings") is False:
+        return False
+    u = usage_for(user)
+    limit = limits.get("trainings_create_per_month", 0)
+    # Si tu ajoutes un champ trainings_created dans le modèle, remplace 0 par u.trainings_created
+    used = getattr(u, "trainings_created", 0)
+    return True if limit is None else (used < int(limit))
+
 
 def _resolve_plan(user) -> str:
     """
@@ -118,7 +113,7 @@ def usage_for(user, now=None) -> UserMonthlyUsage:
     return usage
 
 @transaction.atomic
-def increment_usage(user, *, sessions=0, groups=0, participations=0, now=None) -> UserMonthlyUsage:
+def increment_usage(user, *, sessions=0, groups=0, participations=0, trainings=0, now=None) -> UserMonthlyUsage:    
     """
     Incrémente les compteurs réels stockés en base. Ces noms DOIVENT
     correspondre aux champs du modèle UserMonthlyUsage.
@@ -130,6 +125,8 @@ def increment_usage(user, *, sessions=0, groups=0, participations=0, now=None) -
         u.groups_created = (u.groups_created or 0) + groups
     if participations:
         u.participations = (u.participations or 0) + participations
+    if trainings:
+        u.trainings_created = (u.trainings_created or 0) + trainings
     u.save()
     return u
 

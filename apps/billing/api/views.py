@@ -17,6 +17,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from apps.billing.models import BillingProfile
 
+from apps.billing.api.serializers import QuotasSerializer
+
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
 # mapping inverse price_id -> plan_key
@@ -218,16 +220,12 @@ class StripeWebhookView(APIView):
 
 
 class QuotasView(APIView):
-    """Retourne les quotas en fonction du plan actuel"""
+    """Retourne les quotas normalisés (limits + usage)"""
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        bp, _ = BillingProfile.objects.get_or_create(user=request.user)
-        if bp.plan == BillingProfile.PLAN_COACH:
-            quotas = {"max_sessions": 999, "max_groups": 999, "max_participations": 999}
-        elif bp.plan == BillingProfile.PLAN_PREMIUM:
-            quotas = {"max_sessions": 10, "max_groups": 5, "max_participations": 20}
-        else:  # free
-            quotas = {"max_sessions": 2, "max_groups": 1, "max_participations": 5}
-
-        return Response({"plan": bp.plan, "quotas": quotas})
+      ser = QuotasSerializer.from_user(request.user)
+      resp = Response(ser.data)
+      # 👉 force no-cache côté client/proxy
+      resp["Cache-Control"] = "no-store"
+      return resp

@@ -167,11 +167,31 @@ AUTH_USER_MODEL = 'users.CustomUser'
 GROUP_CREATION_POLICY = "ANY_MEMBER"  # "COACH_ONLY" | "PREMIUM_ONLY" | "COACH_OR_PREMIUM"
 
 PLAN_LIMITS = {
-    "FREE":    {"sessions_create_per_month": 1, "sessions_join_per_month": 3, "max_groups_joined": 1, "can_create_groups": False},
-    "PREMIUM": {"sessions_create_per_month": None, "sessions_join_per_month": None, "max_groups_joined": None, "can_create_groups": True},
-    "COACH":   {"sessions_create_per_month": None, "sessions_join_per_month": None, "max_groups_joined": None, "can_create_groups": True},
+  "FREE": {
+    "sessions_create_per_month": 1,
+    "sessions_join_per_month": 3,
+    "max_groups": 1,
+    "can_create_groups": False,
+    "trainings_create_per_month": 0,
+    "can_create_trainings": False,
+  },
+  "PREMIUM": {
+    "sessions_create_per_month": None,  # ∞
+    "sessions_join_per_month":   None,  # ∞
+    "max_groups":                None,  # ∞
+    "can_create_groups": True,
+    "trainings_create_per_month": 0,
+    "can_create_trainings": False,
+  },
+  "COACH": {
+    "sessions_create_per_month": 20,  # sessions classiques ∞
+    "sessions_join_per_month":   None,
+    "max_groups":                None,
+    "can_create_groups": True,
+    "trainings_create_per_month": None,   # <— limite coach (ex.)
+    "can_create_trainings": True,
+  },
 }
-
 
 STRIPE_SECRET_KEY     = env("STRIPE_SECRET_KEY", required=True)
 STRIPE_WEBHOOK_SECRET = env("STRIPE_WEBHOOK_SECRET", default="")

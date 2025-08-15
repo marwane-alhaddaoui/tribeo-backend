@@ -1,7 +1,8 @@
 # apps/groups/api/views/group_crud_view.py
 from django.db.models import Count, Q
-from rest_framework import generics, permissions
-from rest_framework.exceptions import PermissionDenied
+from django.conf import settings
+from rest_framework import generics, permissions, status
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from apps.groups.models import Group, GroupMember
@@ -9,23 +10,25 @@ from apps.groups.api.serializers.group_serializer import (
     GroupListSerializer, GroupDetailSerializer
 )
 from apps.groups.api.permissions.group_permissions import (
-    IsGroupOwnerOrManager, CanCreateGroup
+    IsGroupOwnerOrManager,  # ⬅️ on garde pour le détail
+    # CanCreateGroup  # ⛔️ REMOVE: on ne l'utilise plus pour POST
 )
+
+from apps.billing.services.quotas import get_limits_for, usage_for, increment_usage
 
 
 class GroupListCreateView(generics.ListCreateAPIView):
     """
     GET: liste publique (OPEN + PRIVATE visibles) — lecture ouverte
-    POST: création réservée aux utilisateurs authentifiés coach/premium
+    POST: création réservée aux utilisateurs authentifiés coach/premium (via policy+quotas)
     """
-    authentication_classes = [JWTAuthentication]  # évite CSRF (pas de SessionAuth)
-    serializer_class = GroupDetailSerializer  # par défaut; switch dans get_serializer_class
+    authentication_classes = [JWTAuthentication]
+    serializer_class = GroupDetailSerializer  # switch dans get_serializer_class
 
     def get_permissions(self):
         if self.request.method == "POST":
-            # Auth + Coach/Premium requis
-            return [permissions.IsAuthenticated(), CanCreateGroup()]
-        # Lecture ouverte
+            # ⬇️ IMPORTANT: plus de permission custom ici (sinon 403)
+            return [permissions.IsAuthenticated()]
         return [permissions.AllowAny()]
 
     def get_queryset(self):
@@ -43,23 +46,68 @@ class GroupListCreateView(generics.ListCreateAPIView):
         if q:
             qs = qs.filter(Q(name__icontains=q) | Q(description__icontains=q))
 
-        # Visibilité de la liste
+        # Visibilité
         base = Q(group_type=Group.GroupType.OPEN) | Q(group_type=Group.GroupType.PRIVATE)
         if u:
             base |= Q(owner=u) | Q(memberships__user=u, memberships__status=GroupMember.STATUS_ACTIVE)
         return qs.filter(base).distinct()
 
     def get_serializer_class(self):
-        # Liste = serializer light, Création = détail (tu renvoies le group créé complet)
         return GroupListSerializer if self.request.method == "GET" else GroupDetailSerializer
 
+    def _is_coach(self, user) -> bool:
+        # Robust coach detection
+        roles_rel = getattr(user, "roles", None)
+        if roles_rel is not None:
+            try:
+                if roles_rel.filter(slug__iexact="COACH").exists():
+                    return True
+            except Exception:
+                pass
+        if getattr(user, "is_coach", False):
+            return True
+        return str(getattr(user, "role", "")).upper() == "COACH"
+
     def perform_create(self, serializer):
-        group = serializer.save(owner=self.request.user)
-        # Owner devient aussi membre OWNER/ACTIVE
+        user = self.request.user
+
+        # --- Policy + quotas (renvoyer 400 via ValidationError) ---
+        policy = getattr(settings, "GROUP_CREATION_POLICY", "ANY_MEMBER")
+        limits = get_limits_for(user)
+        u = usage_for(user)
+
+        is_coach = self._is_coach(user)
+        is_premium_like = limits.get("can_create_groups", False) is True
+
+        if policy == "COACH_ONLY" and not is_coach:
+            raise ValidationError({"detail": "Seuls les coachs peuvent créer des groupes."})
+        if policy == "PREMIUM_ONLY" and not is_premium_like:
+            raise ValidationError({"detail": "Ton plan ne permet pas de créer des groupes."})
+        if policy == "COACH_OR_PREMIUM" and not (is_coach or is_premium_like):
+            raise ValidationError({"detail": "Création réservée aux coachs ou aux comptes premium."})
+
+        can_flag = limits.get("can_create_groups", None)
+        if can_flag is False:
+            raise ValidationError({"detail": "Ton plan ne permet pas de créer des groupes."})
+
+        max_groups = limits.get("max_groups", None)  # None = illimité
+        used = u.groups_created or 0
+        if max_groups is not None and used >= int(max_groups):
+            raise ValidationError({"detail": "Quota de groupes atteint pour ce mois."})
+
+        # --- Save + owner devient membre ---
+        group = serializer.save(owner=user)
         GroupMember.objects.get_or_create(
-            group=group, user=self.request.user,
-            defaults={"role": GroupMember.ROLE_OWNER, "status": GroupMember.STATUS_ACTIVE}
+            group=group,
+            user=user,
+            defaults={"role": GroupMember.ROLE_OWNER, "status": GroupMember.STATUS_ACTIVE},
         )
+
+        # --- Compteur ---
+        try:
+            increment_usage(user, groups=1)
+        except Exception:
+            pass
 
 
 class GroupDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -72,9 +120,7 @@ class GroupDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_permissions(self):
         if self.request.method in ("GET", "HEAD", "OPTIONS"):
-            # Lecture ouverte (le filtrage se fait dans get_queryset)
             return [permissions.AllowAny()]
-        # Écriture: owner/manager authentifié
         return [permissions.IsAuthenticated(), IsGroupOwnerOrManager()]
 
     def get_queryset(self):
