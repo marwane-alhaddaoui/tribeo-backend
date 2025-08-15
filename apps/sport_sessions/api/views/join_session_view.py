@@ -1,3 +1,4 @@
+# apps/sport_sessions/api/views/join_session_view.py
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
@@ -8,9 +9,13 @@ from apps.sport_sessions.models import SportSession
 from apps.sport_sessions.api.serializers.session_serializer import SessionSerializer
 from apps.groups.models import GroupMember
 
-# Quotas / limites
-from apps.billing.services.quotas import usage_for              # compteurs d'usage utilisateur
-from apps.users.utils.plan_limits import get_limits_for         # limites normalisées depuis settings.PLAN_LIMITS
+# Quotas / limites (⇒ on n'importe QUE depuis billing.services.quotas)
+from apps.billing.services.quotas import (
+    usage_for,           # si tu en as besoin ailleurs
+    get_limits_for,      # exposé par le service (normalisé)
+    can_participate,
+    increment_usage,
+)
 
 
 class JoinSessionView(APIView):
@@ -51,13 +56,11 @@ class JoinSessionView(APIView):
                 status=status.HTTP_200_OK
             )
 
-        # 📏 Quotas: participation à des sessions
-        limits = get_limits_for(request.user)      # dict complet normalisé
-        max_join = limits["sessions_join_per_month"]   # int ou None (illimité)
-        if isinstance(max_join, int):
-            uusage = usage_for(request.user)
-            if uusage.sessions_joined >= max_join:
-                raise ValidationError("Quota mensuel de participation atteint pour votre plan.")
+        # 📏 Quotas: participation à des sessions (depuis settings.PLAN_LIMITS normalisé)
+        if not can_participate(request.user):
+            # (optionnel) tu peux logger limits/usage si besoin de debug
+            # limits = get_limits_for(request.user)
+            raise ValidationError("Quota mensuel de participation atteint.")
 
         # 🧮 Capacité
         if session.is_full():
@@ -68,12 +71,14 @@ class JoinSessionView(APIView):
 
         # ➕ Inscription
         session.participants.add(request.user)
-        session.apply_status(persist=True)  # met à jour le statut après join
+        # met à jour le statut après join (peut passer à FULL)
+        try:
+            session.apply_status(persist=True)
+        except Exception:
+            pass
 
-        # 🔢 Incrément usage
-        uusage = usage_for(request.user)
-        uusage.sessions_joined += 1
-        uusage.save()
+        # 🔢 Incrément usage (champ réel: participations)
+        increment_usage(request.user, participations=1)
 
         # 🔁 Retour avec context pour computed_status/actions
         return Response(
