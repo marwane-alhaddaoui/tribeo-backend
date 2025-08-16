@@ -14,6 +14,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         ('admin', 'Admin'),
         ('coach', 'Coach'),
         ('user', 'User'),
+        ('premium', 'Premium'),
     ]
 
     email = models.EmailField(unique=True, max_length=255)
