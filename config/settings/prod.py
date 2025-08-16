@@ -32,6 +32,8 @@ SECURE_REFERRER_POLICY = "same-origin"
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 # Logging plus strict (si LOGGING défini en base)
 try:
     LOGGING["root"]["level"] = "WARNING"
