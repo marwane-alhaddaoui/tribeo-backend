@@ -52,6 +52,8 @@ INSTALLED_APPS = [
     'apps.teams',
     'apps.chat',
     'apps.billing',
+    "drf_spectacular",
+    "drf_spectacular_sidecar",
     
 ]
 
@@ -132,8 +134,26 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
-
+# drf-spectacular settings
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Tribeo API',
+    'DESCRIPTION': 'API REST pour TRIBEO.',
+    'VERSION': '1.0.0',
+    'SCHEMA_PATH_PREFIX': r'/api/',  # documenter uniquement /api/
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SECURITY': [{'BearerAuth': []}],
+    'COMPONENTS': {
+        'securitySchemes': {
+            'BearerAuth': {
+                'type': 'http',
+                'scheme': 'bearer',
+                'bearerFormat': 'JWT',
+            }
+        }
+    },
+}
 AUTH_USER_MODEL = 'users.CustomUser'
 
 GROUP_CREATION_POLICY = "ANY_MEMBER"  # "COACH_ONLY" | "PREMIUM_ONLY" | "COACH_OR_PREMIUM"
