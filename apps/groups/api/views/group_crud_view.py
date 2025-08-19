@@ -16,6 +16,7 @@ from apps.groups.api.permissions.group_permissions import (
 
 from apps.billing.services.quotas import get_limits_for, usage_for, increment_usage
 
+from apps.audit.utils import audit_log
 
 class GroupListCreateView(generics.ListCreateAPIView):
     """
@@ -97,6 +98,10 @@ class GroupListCreateView(generics.ListCreateAPIView):
 
         # --- Save + owner devient membre ---
         group = serializer.save(owner=user)
+        try:
+            audit_log(self.request, "group.create", obj=group)
+        except Exception:
+            pass
         GroupMember.objects.get_or_create(
             group=group,
             user=user,

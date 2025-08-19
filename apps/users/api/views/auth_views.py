@@ -5,7 +5,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from apps.users.api.serializers.user_serializer import RegisterSerializer, UserSerializer
 from rest_framework.parsers import MultiPartParser, FormParser
-
+from apps.audit.utils import audit_log
 User = get_user_model()
 
 
@@ -13,6 +13,13 @@ class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
+    
+    def perform_create(self, serializer):
+        user = serializer.save()
+        try:
+            audit_log(self.request, "user.register", obj=user)
+        except Exception:
+            pass
 
 
 # ---- Login: email OU username, + extra claims ----
@@ -49,7 +56,10 @@ class EmailOrUsernameTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         # Laisse SimpleJWT gérer la génération du token
         data = super().validate({self.username_field: user.email, "password": password})
-
+        try:
+            audit_log(self.context.get("request"), "user.login", actor=user)
+        except Exception:
+            pass
         # Ajoute les infos utilisateur dans la réponse
         data['user'] = {
             'id': user.id,

@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',
+    'apps.audit',
     'apps.users',
     'apps.sport_sessions',
     'apps.sports',
@@ -51,6 +52,7 @@ INSTALLED_APPS = [
     'apps.teams',
     'apps.chat',
     'apps.billing',
+    
 ]
 
 MIDDLEWARE = [

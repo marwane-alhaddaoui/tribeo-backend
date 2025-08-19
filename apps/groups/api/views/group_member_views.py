@@ -7,6 +7,7 @@ from apps.groups.models import Group, GroupMember
 from apps.users.models.users import CustomUser
 from apps.groups.api.permissions.group_permissions import IsGroupOwner
 from apps.groups.api.serializers.group_serializer import GroupDetailSerializer
+from  apps.audit.utils import  audit_log
 
 class AddMemberView(generics.GenericAPIView):
     permission_classes = [permissions.IsAuthenticated, IsGroupOwner]
@@ -30,7 +31,10 @@ class AddMemberView(generics.GenericAPIView):
         if not created and gm.status != GroupMember.STATUS_ACTIVE:
             gm.status = GroupMember.STATUS_ACTIVE
             gm.save(update_fields=["status"])
-
+        try:
+            audit_log(request, "group.add_member", obj=group, meta={"member_id": user.id})
+        except Exception:
+            pass
         return Response(GroupDetailSerializer(group, context={"request": request}).data, status=status.HTTP_200_OK)
 
 class RemoveMemberView(generics.GenericAPIView):
@@ -53,4 +57,9 @@ class RemoveMemberView(generics.GenericAPIView):
             return Response({"detail": "Cet utilisateur n'est pas membre."}, status=status.HTTP_400_BAD_REQUEST)
 
         gm.delete()
+        
+        try:
+            audit_log(request, "group.remove_member", obj=group, meta={"member_id": user.id})
+        except Exception:
+            pass
         return Response(GroupDetailSerializer(group, context={"request": request}).data, status=status.HTTP_200_OK)

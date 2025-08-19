@@ -6,7 +6,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from apps.billing.models import BillingProfile
-from .views import StripeWebhookView, PRICE_TO_PLAN  # ⬅️ on importe aussi PRICE_TO_PLAN
+from .views import StripeWebhookView, PRICE_TO_PLAN  
+
+from apps.audit.utils import audit_log
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
@@ -36,6 +38,13 @@ class VerifyCheckoutSessionView(APIView):
         sub = sess.get("subscription")
         cust = sess.get("customer")
         if not sub:
+            
+            try:
+                audit_log(request, "billing.verify_checkout_session",
+                          meta={"error": "no_subscription", "session_id": session_id})
+            except Exception:
+                pass
+            
             return Response({"error": "No subscription on this session"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Assure/charge le BillingProfile
@@ -76,6 +85,24 @@ class VerifyCheckoutSessionView(APIView):
                 request.user.save(update_fields=["role"])
                 # print(f"[verify] role updated user_id={request.user.id} -> {desired_role} (price_id={price_id})")
 
+            try:
+                audit_log(
+                request,
+                "billing.verify_checkout_session",
+                obj=request.user,
+                meta={
+                    "session_id": session_id,
+                    "stripe_customer_id": bp.stripe_customer_id,
+                    "stripe_subscription_id": bp.stripe_subscription_id,
+                    "price_id": price_id,
+                    "plan": bp.plan,
+                    "role": getattr(request.user, "role", None),
+                },
+            )
+            except Exception:
+                pass
+            
+            
         return Response({
             "status": bp.status,
             "plan": bp.plan,

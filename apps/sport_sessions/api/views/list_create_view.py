@@ -13,7 +13,7 @@ from apps.billing.services.quotas import (
     can_create_training,
     increment_usage,
 )
-
+from apps.audit.utils import audit_log
 
 def _truthy(v) -> bool:
     return str(v).strip().lower() in {"1", "true", "t", "yes", "y"}
@@ -191,6 +191,20 @@ class SessionListCreateView(generics.ListCreateAPIView):
             increment_usage(request.user, trainings=1)
         else:
             increment_usage(request.user, sessions=1)
+            
+        try:
+            audit_log(
+            request,                   
+            "session.create",          
+            obj=session,               
+            meta={
+            "event_type": session.event_type,
+            "visibility": session.visibility,
+            "group_id": session.group_id,
+            },
+            )  # on log l'audit ici
+        except Exception:
+            pass
 
         return Response(
             self.get_serializer(session, context={"request": request}).data,
