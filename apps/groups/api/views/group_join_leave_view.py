@@ -7,7 +7,32 @@ from apps.groups.models import Group, GroupMember, GroupJoinRequest
 from apps.groups.api.serializers.group_serializer import GroupDetailSerializer
 
 from rest_framework.exceptions import ValidationError
-from apps.billing.services.quotas import usage_for, get_limits_for
+from apps.billing.services.quotas import usage_for  # (facultatif: pour un compteur "safe")
+
+
+def _safe_inc_usage_joined(user):
+    """
+    Incrémente un compteur 'join' uniquement si le champ existe sur l'objet usage.
+    Sinon, no-op.
+    """
+    try:
+        u = usage_for(user)
+    except Exception:
+        return
+    for field in ("groups_joined", "memberships_joined", "groups"):
+        if hasattr(u, field):
+            cur = getattr(u, field) or 0
+            try:
+                cur = int(cur)
+            except (TypeError, ValueError):
+                cur = 0
+            setattr(u, field, cur + 1)
+            try:
+                u.save(update_fields=[field])
+            except Exception:
+                u.save()
+            return
+    # aucun champ connu -> no-op
 
 
 class JoinGroupView(APIView):
@@ -21,48 +46,39 @@ class JoinGroupView(APIView):
             ser = GroupDetailSerializer(group, context={"request": request})
             return Response(ser.data, status=status.HTTP_200_OK)
 
-        # Coach-only (invitation)
+        # Coach-only (invitation uniquement via demandes)
         if group.group_type == Group.GroupType.COACH:
             return Response(
                 {"detail": "Ce groupe est sur invitation uniquement."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # --- QUOTA: nombre de groupes rejoints (comptage des memberships ACTIFS) ---
-        limits = get_limits_for(request.user)
-        if limits["max_groups_joined"] is not None:
-            already = GroupMember.objects.filter(
-                user=request.user,
-                status=GroupMember.STATUS_ACTIVE
-            ).count()
-            if already >= limits["max_groups_joined"]:
-                raise ValidationError("Nombre maximal de groupes atteint pour votre plan.")
+        # --- Aucun quota pour rejoindre ---
 
-        # OPEN => on active directement le membership
         if group.group_type == Group.GroupType.OPEN:
+            # Activation immédiate
             gm, created = GroupMember.objects.get_or_create(
                 group=group,
                 user=request.user,
                 defaults={"role": GroupMember.ROLE_MEMBER, "status": GroupMember.STATUS_ACTIVE}
             )
-            # si existait mais non-actif, on (ré)active
+
             activated_now = False
             if not created and gm.status != GroupMember.STATUS_ACTIVE:
                 gm.status = GroupMember.STATUS_ACTIVE
                 gm.save(update_fields=["status"])
                 activated_now = True
+            elif created:
+                activated_now = True
 
-            # --- INCRÉMENT usage UNIQUEMENT si on vient d'activer (nouvelle adhésion effective)
-            if (created and gm.status == GroupMember.STATUS_ACTIVE) or activated_now:
-                uusage = usage_for(request.user)
-                uusage.groups_joined += 1
-                uusage.save()
+            if activated_now:
+                _safe_inc_usage_joined(request.user)  # no-op si champ absent
 
             ser = GroupDetailSerializer(group, context={"request": request})
             return Response(ser.data, status=status.HTTP_200_OK)
 
-        # PRIVATE => on crée une demande (pas d'incrément ici)
         if group.group_type == Group.GroupType.PRIVATE:
+            # Crée/repasse en attente une demande (pas d'incrément d'usage ici)
             jr, created = GroupJoinRequest.objects.get_or_create(group=group, user=request.user)
             if jr.status == GroupJoinRequest.REJECTED:
                 jr.status = GroupJoinRequest.PENDING
@@ -89,6 +105,6 @@ class LeaveGroupView(APIView):
             return Response({"detail": "Vous n'êtes pas membre de ce groupe."},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        # ❗️Pas de décrément d'usage ici : groups_joined est un compteur d’adhésions (monotone)
+        # Pas de décrément d'usage (compteur monotone)
         gm.delete()
         return Response({"left": True}, status=status.HTTP_200_OK)
