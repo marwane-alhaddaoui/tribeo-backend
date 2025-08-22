@@ -135,7 +135,22 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    
+    
+    #  Anti brute force / spam
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '60/min',     
+        'user': '600/min',    
+        'login': '3/min',     
+        'register': '10/hour' 
+    },
 }
+
 # drf-spectacular settings
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Tribeo API',

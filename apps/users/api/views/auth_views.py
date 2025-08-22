@@ -6,6 +6,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from apps.users.api.serializers.user_serializer import RegisterSerializer, UserSerializer
 from rest_framework.parsers import MultiPartParser, FormParser
 from apps.audit.utils import audit_log
+from rest_framework.throttling import ScopedRateThrottle
 User = get_user_model()
 
 
@@ -13,6 +14,8 @@ class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_scope = 'register'
+    throttle_classes = [ScopedRateThrottle]
     
     def perform_create(self, serializer):
         user = serializer.save()
@@ -74,6 +77,8 @@ class EmailOrUsernameTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class LoginView(TokenObtainPairView):
     serializer_class = EmailOrUsernameTokenObtainPairSerializer
+    throttle_scope = 'login'
+    throttle_classes = [ScopedRateThrottle]
 
 
 class RefreshView(TokenRefreshView):
