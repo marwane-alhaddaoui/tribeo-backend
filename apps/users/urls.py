@@ -14,7 +14,6 @@ urlpatterns = [
     path('admin/users/', AdminUserListView.as_view(), name='admin-users'),
     path('admin/users/<int:pk>/', AdminUserDetailView.as_view(), name='admin-user-detail'),
 
-    # ✅ CORRECT: pas de "users/" ici, le préfixe est déjà dans config/urls.py
     path('search/', UserSearchView.as_view(), name='user-search'),
 ]
   

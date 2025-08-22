@@ -1,5 +1,5 @@
 # apps/users/api/views/auth_views.py
-from rest_framework import generics, permissions, serializers
+from rest_framework import generics, permissions, serializers,status
 from django.contrib.auth import get_user_model, authenticate
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -7,6 +7,7 @@ from apps.users.api.serializers.user_serializer import RegisterSerializer, UserS
 from rest_framework.parsers import MultiPartParser, FormParser
 from apps.audit.utils import audit_log
 from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.response import Response
 User = get_user_model()
 
 
@@ -85,8 +86,18 @@ class RefreshView(TokenRefreshView):
     pass
 
 
-class MeView(generics.RetrieveUpdateAPIView):
+class MeView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = UserSerializer
     parser_classes = [MultiPartParser, FormParser]  # JSON reste supporté par défaut
     def get_object(self): return self.request.user
+
+def delete(self, request, *args, **kwargs):
+        user = request.user
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+        try:
+            audit_log(request, "user.deactivate_self", actor=user)
+        except Exception:
+            pass
+        return Response(status=status.HTTP_204_NO_CONTENT)
