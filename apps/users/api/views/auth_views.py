@@ -1,4 +1,4 @@
-# apps/users/api/views/auth_views.py
+﻿# apps/users/api/views/auth_views.py
 from rest_framework import generics, permissions, serializers,status
 from django.contrib.auth import get_user_model, authenticate
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -91,13 +91,35 @@ class MeView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = UserSerializer
     parser_classes = [MultiPartParser, FormParser]  # JSON reste supporté par défaut
     def get_object(self): return self.request.user
-
-def delete(self, request, *args, **kwargs):
-        user = request.user
+    def destroy(self, request, *args, **kwargs):
+        user = self.get_object()
+        # Désactivation + anonymisation minimale (RGPD-friendly) sans casser les FKs
         user.is_active = False
-        user.save(update_fields=["is_active"])
+        try:
+            uid = str(user.id or "").strip()
+        except Exception:
+            uid = ""
+        # Username: <=20 chars, regex [a-z0-9_]
+        new_username = (f"deleted_{uid}" if uid else f"deleted_{user.pk}")[:20].lower()
+        if new_username and new_username != user.username:
+            user.username = new_username
+        # Email: alias unique non nominatif
+        try:
+            user.email = f"deleted+{user.pk}@deleted.local"
+        except Exception:
+            pass
+        # PII visibles
+        if hasattr(user, "first_name"): user.first_name = ""
+        if hasattr(user, "last_name"): user.last_name = ""
+        if hasattr(user, "avatar"): user.avatar = None
+        if hasattr(user, "avatar_url"): user.avatar_url = None
+        user.save(update_fields=[
+            "is_active","username","email","first_name","last_name","avatar","avatar_url"
+        ])
         try:
             audit_log(request, "user.deactivate_self", actor=user)
         except Exception:
             pass
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
